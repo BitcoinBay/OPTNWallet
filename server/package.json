@@ -12,12 +12,19 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@psf/bch-js": "^6.7.4",
+    "@trpc/server": "^10.45.2",
     "bip32": "^4.0.0",
     "bip39": "^3.1.0",
+    "bitcoinjs-lib": "^6.1.5",
+    "body-parser": "^1.20.2",
+    "browserify": "^17.0.0",
     "cors": "^2.8.5",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "tiny-secp256k1": "^2.2.3"
   },
   "devDependencies": {
-    "nodemon": "^3.1.0"
+    "nodemon": "^3.1.0",
+    "typescript": "^5.4.5"
   }
 }
