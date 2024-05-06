@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { generateMnemonic, generateKeys } from '../apis/keyGeneration'
+import { generateMnemonic, generateKeys } from '../apis/WalletInformation/KeyGeneration'
 
 const Home = () => {
     const [mnemonicPhrase, setMnemonicPhrase] = useState("");
@@ -16,8 +16,8 @@ const Home = () => {
     const generateKey = async () => {
       try {
         const keys = await generateKeys(mnemonicPhrase, passphrase, coin);
-        setAddress(keys.address);
-        setPrivateKey(keys.hdPrivateKey);
+        console.log(keys)
+        setAddress(keys.aliceAddress.address)
       } catch (error) {
         console.log(error);
       };
