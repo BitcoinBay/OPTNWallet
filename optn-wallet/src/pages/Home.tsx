@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { generateMnemonic, generateKeys } from '../apis/WalletInformation/KeyGeneration'
+import { initElectrum, shutdownElectrum } from '../apis/ElectrumServer/ElectrumServer'
 
 const Home = () => {
     const [mnemonicPhrase, setMnemonicPhrase] = useState("");
@@ -8,6 +9,9 @@ const Home = () => {
     const [address, setAddress] = useState("");
     const [privateKey, setPrivateKey] = useState("");
     const [coin, setCoin] = useState("");
+    useEffect(()=> {
+        initElectrum();
+    }, []);
 
     const handleGenerateMnemonic = async () => {
       const mnemonic = await generateMnemonic();
@@ -17,7 +21,7 @@ const Home = () => {
       try {
         const keys = await generateKeys(mnemonicPhrase, passphrase, coin);
         console.log(keys)
-        setAddress(keys.aliceAddress.address)
+        setAddress(keys.address.address)
       } catch (error) {
         console.log(error);
       };
