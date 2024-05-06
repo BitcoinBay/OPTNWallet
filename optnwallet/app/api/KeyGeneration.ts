@@ -5,8 +5,7 @@ import {
     encodeHdPublicKey,
     deriveHdPrivateNodeFromBip39Mnemonic,
     hdPrivateKeyToP2pkhCashAddress,
-} from "@bitauth/libauth";
-
+} from '@bitauth/libauth';
 import * as bip39 from "bip39";
 import * as bitcoin from 'bitcoinjs-lib';
 
@@ -16,8 +15,7 @@ const generateMnemonic = () => {
 };
 
 const generateKeys = (mnemonic, passphrase, coin) => {
-    const network = bitcoin.networks.testnet
-    const seed = bip39.mnemonicToSeedSync(mnemonic, passphrase);
+    const network = bitcoin.networks.testnet;
     const { hdPrivateKey } = encodeHdPrivateKey({
         network: 'testnet',
         node: deriveHdPrivateNodeFromBip39Mnemonic(mnemonic),
@@ -36,4 +34,4 @@ const generateKeys = (mnemonic, passphrase, coin) => {
     });
 };
 
-export { generateMnemonic, generateKeys };
+export { generateMnemonic };

@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from 'next/link';
 import axios from "axios";
-import { generateMnemonic, generateKeys } from "./utils/KeyGeneration";
+import { generateMnemonic } from "./api/KeyGeneration";
 
 export default function Home() {
   const [mnemonicPhrase, setMnemonicPhrase] = useState("");
@@ -16,7 +16,6 @@ export default function Home() {
     const mnemonic = await generateMnemonic();
     setMnemonicPhrase(mnemonic);
   };
-
   const generateKey = async () => {
     try {
       const keys = await generateKeys(mnemonicPhrase, passphrase, coin);
@@ -27,18 +26,9 @@ export default function Home() {
       console.log(error);
     };
   };
-  const testing = async () => {
-    try {
-      await testingNode();
-
-    } catch (error) {
-      console.log(error);
-    }
-  };
 
   return (
     <>
-      <button onClick = { testing }>testing</button>
       <div className = "">Landing Page</div>
       <div>Set Passphrase</div>
       <input onChange={(e) => {
