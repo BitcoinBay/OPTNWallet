@@ -29,7 +29,12 @@ const generateKeys = async (mnemonic, passphrase, coin) => {
     const alicePub = secp256k1.derivePublicKeyCompressed(aliceNode.privateKey) as Uint8Array;
     const alicePriv = aliceNode.privateKey;
     const alicePkh = hash160(alicePub);
-    const aliceAddress = encodeCashAddress('bchtest', 'p2pkh', alicePkh);
+    const aliceAddress = encodeCashAddress({
+        payload: alicePkh,
+        prefix: 'bchtest',
+        type: 'p2pkh',
+        throwErrors: true
+    });
     return { aliceAddress, alicePriv}
 };
 
