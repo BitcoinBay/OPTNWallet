@@ -17,8 +17,7 @@ const Home = () => {
       try {
         const keys = await generateKeys(mnemonicPhrase, passphrase, coin);
         setAddress(keys.address);
-        setPublicKey(keys.publicKey);
-        setPrivateKey(keys.privateKey);
+        setPrivateKey(keys.hdPrivateKey);
       } catch (error) {
         console.log(error);
       };
@@ -33,12 +32,12 @@ const Home = () => {
         }}></input>
         <div>Mnemonic Value: { mnemonicPhrase }</div>
         <button onClick = { handleGenerateMnemonic }>Generate Mnemonic</button>
-  
+
         <div>Public Key: { publicKey }</div>
         <div>Address: { address }</div>
         <div>Private Key: { privateKey }</div>
         <button onClick = { generateKey } >Generate Keys</button>
-  
+
         <input onChange={(e) => {
             setCoin(e.target.value);
         }} ></input>

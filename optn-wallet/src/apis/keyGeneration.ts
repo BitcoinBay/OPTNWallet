@@ -32,6 +32,7 @@ const generateKeys = (mnemonic, passphrase, coin) => {
         hdPrivateKey,
         privateDerivationPath,
     });
+    return { address, hdPrivateKey }
 };
 
 export { generateMnemonic, generateKeys };

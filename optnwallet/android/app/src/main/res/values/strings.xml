@@ -1,7 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<resources>
-    <string name="app_name">OPTNWallet</string>
-    <string name="title_activity_main">OPTNWallet</string>
-    <string name="package_name">com.bitcoinbay.OPTNWallet</string>
-    <string name="custom_url_scheme">com.bitcoinbay.OPTNWallet</string>
-</resources>
