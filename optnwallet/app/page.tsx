@@ -1,10 +1,8 @@
 "use client";
-
-
 import { useEffect, useState } from "react";
 import Link from 'next/link';
 import axios from "axios";
-import { generateMnemonic, generateKeys, makeTransaction, testingNode } from "./utils/KeyGeneration";
+import { generateMnemonic, generateKeys } from "./utils/KeyGeneration";
 
 export default function Home() {
   const [mnemonicPhrase, setMnemonicPhrase] = useState("");
@@ -14,14 +12,14 @@ export default function Home() {
   const [privateKey, setPrivateKey] = useState("");
   const [coin, setCoin] = useState("");
 
-  const handleGenerateMnemonic = () => {
-    const mnemonic = generateMnemonic(passphrase);
+  const handleGenerateMnemonic = async () => {
+    const mnemonic = await generateMnemonic();
     setMnemonicPhrase(mnemonic);
   };
 
   const generateKey = async () => {
     try {
-      const keys = generateKeys(mnemonicPhrase, passphrase, coin);
+      const keys = await generateKeys(mnemonicPhrase, passphrase, coin);
       setAddress(keys.address);
       setPublicKey(keys.publicKey);
       setPrivateKey(keys.privateKey);
@@ -31,13 +29,12 @@ export default function Home() {
   };
   const testing = async () => {
     try {
-      testingNode();
+      await testingNode();
 
     } catch (error) {
       console.log(error);
     }
   };
-
 
   return (
     <>
