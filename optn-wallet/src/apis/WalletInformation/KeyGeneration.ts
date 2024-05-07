@@ -1,10 +1,5 @@
 import {
     deriveHdPrivateNodeFromSeed,
-    encodeHdPrivateKey,
-    deriveHdPublicNode,
-    encodeHdPublicKey,
-    deriveHdPrivateNodeFromBip39Mnemonic,
-    hdPrivateKeyToP2pkhCashAddress,
     deriveHdPath,
     secp256k1,
     encodeCashAddress,

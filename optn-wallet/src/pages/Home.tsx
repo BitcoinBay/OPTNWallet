@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { generateMnemonic, generateKeys } from '../apis/WalletInformation/KeyGeneration'
-import { initElectrum, shutdownElectrum } from '../apis/ElectrumServer/ElectrumServer'
+import { ElectrumNetworkProvider, Network } from '../apis/ElectrumServer/ElectrumServer';
 
 const Home = () => {
     const [mnemonicPhrase, setMnemonicPhrase] = useState("");
@@ -9,8 +9,21 @@ const Home = () => {
     const [address, setAddress] = useState("");
     const [privateKey, setPrivateKey] = useState("");
     const [coin, setCoin] = useState("");
+
     useEffect(()=> {
-        initElectrum();
+        async function main() {
+          const provider = new ElectrumNetworkProvider();
+          try {
+              await provider.connectCluster();
+              console.log('Successfully connected to the Chipnet network');
+          } catch (error) {
+              console.error('An error occurred:', error);
+          } finally {
+              await provider.disconnectCluster();
+              console.log('Disconnected from the network');
+          }
+      }
+      main();
     }, []);
 
     const handleGenerateMnemonic = async () => {
