@@ -1,4 +1,4 @@
-import { ElectrumCluster, ElectrumTransport, ClusterOrder } from 'electrum-cash;
+import { ElectrumCluster, ElectrumClient, ElectrumTransport } from 'electrum-cash';
 
 export enum Network {
     CHIPNET

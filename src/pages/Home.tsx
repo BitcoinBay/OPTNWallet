@@ -11,7 +11,7 @@ const Home = () => {
     const [coin, setCoin] = useState("");
 
     useEffect(()=> {
-        async function main() {
+        async function startServer() {
           const provider = new ElectrumNetworkProvider();
           try {
               await provider.connectCluster();
@@ -23,13 +23,14 @@ const Home = () => {
               console.log('Disconnected from the network');
           }
       }
-      main();
+      startServer();
     }, []);
 
     const handleGenerateMnemonic = async () => {
       const mnemonic = await generateMnemonic();
       setMnemonicPhrase(mnemonic);
     };
+
     const generateKey = async () => {
       try {
         const keys = await generateKeys(mnemonicPhrase, passphrase, coin);
