@@ -1,30 +1,38 @@
 import { ElectrumCluster, ElectrumClient, ElectrumTransport } from 'electrum-cash';
+import { chipnetServers } from '../../utils/servers/ElectrumServers';
 
 export enum Network {
     CHIPNET
 }
+//this is to declare the type of the electrum
+let electrum: ElectrumClient | null = null;
 
-export class ElectrumNetworkProvider {
-    private electrum: ElectrumCluster;
+const testServer = chipnetServers[0];
 
-    constructor(public network: Network = Network.CHIPNET) {
-        this.initializeElectrumCluster();
+export default function ElectrumService() {
+    //CONENCNNTING THE SERVER
+    async function electrumConnect (server : string = testServer): Promise<void>{
+        electrum = new ElectrumClient('OPTNWallet', '1.4.1', server, ElectrumTransport.WSS.Port, ElectrumTransport.WSS.Scheme);
+        return electrum.connect();
     }
+    //DISOCNET SERVER
+    async function electrumDisconnect(status: boolean): Promise<boolean> {
+        if (electrum !== null) {
+            return electrum.disconnect(status);
+        }
+        return true;
+    };
 
-    private initializeElectrumCluster() {
-        if (this.network === Network.CHIPNET) {
-            this.electrum = new ElectrumCluster('Chipnet Application', '1.4.1', 1, 1, ClusterOrder.PRIORITY);
-            this.electrum.addServer('chipnet.imaginary.cash', 50004, ElectrumTransport.WSS.Scheme, false);
-        } else {
-            throw new Error(`Unsupported network configuration: ${this.network}`);
+    //GTHE BALANCE
+    async function getBalance(address : string) : Promise<any> {
+        if (electrum !== null) {
+            const { confirmed, unconfirmed } = await electrum.request(
+                "blockchain.address.get_balance",
+                address
+            );
+            return confirmed + unconfirmed
         }
     }
+    return { electrumConnect, electrumDisconnect, getBalance }
 
-    public async connectCluster(): Promise<void> {
-        await this.electrum.startup();
-    }
-
-    public async disconnectCluster(): Promise<void> {
-        await this.electrum.shutdown();
-    }
 }

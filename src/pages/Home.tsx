@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { generateMnemonic, generateKeys } from '../apis/WalletInformation/KeyGeneration'
-import { ElectrumNetworkProvider, Network } from '../apis/ElectrumServer/ElectrumServer';
+import ElectrumService from '../apis/ElectrumServer/ElectrumServer';
 
 const Home = () => {
     const [mnemonicPhrase, setMnemonicPhrase] = useState("");
@@ -8,19 +8,16 @@ const Home = () => {
     const [publicKey, setPublicKey] = useState("");
     const [address, setAddress] = useState("");
     const [privateKey, setPrivateKey] = useState("");
+    const [bchBalance, setBchBalance] = useState();
     const [coin, setCoin] = useState("");
-
+    const Electrum = ElectrumService();
     useEffect(()=> {
         async function startServer() {
-          const provider = new ElectrumNetworkProvider();
           try {
-              await provider.connectCluster();
+              await Electrum.electrumConnect()
               console.log('Successfully connected to the Chipnet network');
           } catch (error) {
               console.error('An error occurred:', error);
-          } finally {
-              await provider.disconnectCluster();
-              console.log('Disconnected from the network');
           }
       }
       startServer();
@@ -41,6 +38,17 @@ const Home = () => {
       };
     };
 
+    const handleDisconnectServer = async() => {
+        await Electrum.electrumDisconnect(true);
+        console.log('Disconnected from the network');
+    }
+    const handleRequestBalance = async() => {
+      const address1 = "bchtest:pdayzgu6vnpwsgkjpzhp7d8fmr9e3ugn7w6umre4w9tv6862l0y76sxcklaq8";
+      const balance = await Electrum.getBalance(address1);  // Properly call the function with an address
+      console.log(typeof(balance));
+      console.log(balance);
+    }
+
     return (
       <>
         <div className = "">Landing Page</div>
@@ -56,9 +64,15 @@ const Home = () => {
         <div>Private Key: { privateKey }</div>
         <button onClick = { generateKey } >Generate Keys</button>
 
-        <input onChange={(e) => {
+        <input placeholder = "set coin" onChange={(e) => {
             setCoin(e.target.value);
         }} ></input>
+
+        <button onClick = { handleDisconnectServer }>Disconnect server</button>
+
+        <div>{ bchBalance }</div>
+
+        <button onClick = {handleRequestBalance}> request balance</button>
       </>
   )
 }
