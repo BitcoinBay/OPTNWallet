@@ -1,16 +1,19 @@
 import React, { useState, useEffect } from 'react'
 import { generateMnemonic, generateKeys } from '../apis/WalletInformation/KeyGeneration'
 import ElectrumService from '../apis/ElectrumServer/ElectrumServer';
+import Transactions from '../apis/Transaction';
 
 const Home = () => {
     const [mnemonicPhrase, setMnemonicPhrase] = useState("");
     const [passphrase, setPassphrase] = useState("");
     const [publicKey, setPublicKey] = useState("");
     const [address, setAddress] = useState("");
-    const [privateKey, setPrivateKey] = useState("");
-    const [bchBalance, setBchBalance] = useState();
+    const [privateKey, setPrivateKey] = useState<Uint8Array | null>(null)
+    const [bchBalance, setBchBalance] = useState("");
     const [coin, setCoin] = useState("");
+    const [utxos, setUtxos] = useState([]);
     const Electrum = ElectrumService();
+    const Transaction = Transactions();
     useEffect(()=> {
         async function startServer() {
           try {
@@ -32,7 +35,8 @@ const Home = () => {
       try {
         const keys = await generateKeys(mnemonicPhrase, passphrase, coin);
         console.log(keys)
-        setAddress(keys.address.address)
+        setAddress(keys.aliceAddress)
+        setPrivateKey(keys.alicePriv)
       } catch (error) {
         console.log(error);
       };
@@ -42,12 +46,29 @@ const Home = () => {
         await Electrum.electrumDisconnect(true);
         console.log('Disconnected from the network');
     }
+
     const handleRequestBalance = async() => {
-      const address1 = "bchtest:pdayzgu6vnpwsgkjpzhp7d8fmr9e3ugn7w6umre4w9tv6862l0y76sxcklaq8";
-      const balance = await Electrum.getBalance(address1);  // Properly call the function with an address
+      const address1 = "bchtest:qznwqlqtzgqkxpt6gp92da2peprj3202s53trwdn7t";
+      const balance = await Electrum.getBalance(address1);
       console.log(typeof(balance));
       console.log(balance);
+      setBchBalance(balance);
     }
+    
+    const handleGetUtxos = async() => {
+      const address1 = "bchtest:qznwqlqtzgqkxpt6gp92da2peprj3202s53trwdn7t";
+      const utxoValues = await Electrum.getUTXOS(address1)
+      console.log(utxoValues);
+      setUtxos(utxoValues);
+
+    };
+
+    const handleBuildTransaction = async() => {
+      console.log(utxos[0])
+      await Transaction.buildTransaction(utxos[0])
+
+      
+    };
 
     return (
       <>
@@ -70,9 +91,14 @@ const Home = () => {
 
         <button onClick = { handleDisconnectServer }>Disconnect server</button>
 
-        <div>{ bchBalance }</div>
+        <div>balance: { bchBalance }</div>
 
         <button onClick = {handleRequestBalance}> request balance</button>
+
+        <div>utxos: {} </div>
+        <button onClick = { handleGetUtxos }> get utxos</button>
+
+        <button onClick = { handleBuildTransaction }>build transaction</button>
       </>
   )
 }

@@ -26,13 +26,33 @@ export default function ElectrumService() {
     //GTHE BALANCE
     async function getBalance(address : string) : Promise<any> {
         if (electrum !== null) {
+            const params = [address, "include_tokens"]
             const { confirmed, unconfirmed } = await electrum.request(
                 "blockchain.address.get_balance",
-                address
+                ...params
             );
             return confirmed + unconfirmed
         }
     }
-    return { electrumConnect, electrumDisconnect, getBalance }
+    async function getUTXOS(address : string) : Promise<any> {
+        if (electrum !== null) {
+            const UTXOs = await electrum.request(
+                "blockchain.address.listunspent",
+                address
+            );
+            return UTXOs;
+    
+        }
+    }
+    async function broadcastTransaction(tx_hex) {
+        if (electrum !== null) {
+            const tx_hash = await electrum.request(
+            "blockchain.transaction.broadcast",
+            tx_hex
+            );
+            return tx_hash;
+        }
+      }
+    return { electrumConnect, electrumDisconnect, getBalance, getUTXOS, broadcastTransaction }
 
 }
