@@ -47,9 +47,10 @@ export default function ElectrumService() {
     async function broadcastTransaction(tx_hex) {
         if (electrum !== null) {
             const tx_hash = await electrum.request(
-            "blockchain.transaction.broadcast",
-            tx_hex
+                "blockchain.transaction.broadcast",
+                tx_hex
             );
+            console.log('hallo')
             return tx_hash;
         }
       }

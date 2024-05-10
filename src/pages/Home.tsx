@@ -37,6 +37,7 @@ const Home = () => {
         console.log(keys)
         setAddress(keys.aliceAddress)
         setPrivateKey(keys.alicePriv)
+        setPublicKey(keys.changeAddress)
       } catch (error) {
         console.log(error);
       };
@@ -65,8 +66,15 @@ const Home = () => {
 
     const handleBuildTransaction = async() => {
       console.log(utxos[0])
-      await Transaction.buildTransaction(utxos[0])
-
+      const transaction = await Transaction.buildTransaction(utxos[0])
+      console.log('transaction', transaction)
+      const Electrum = ElectrumService();
+      console.log('har har har',transaction.hex)
+      const result = await Electrum.broadcastTransaction(transaction.hex);
+      console.log("result", result)
+      console.log("txhash", transaction.txid)
+      const isSuccess = result === transaction.txid;
+      console.log(isSuccess)
       
     };
 

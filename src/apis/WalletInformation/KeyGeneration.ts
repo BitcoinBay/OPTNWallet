@@ -13,19 +13,28 @@ const generateMnemonic = () => {
     return mnemonic;
 };
 
-const generateKeys = async (mnemonic, passphrase, coin) => {
+const generateKeys = async (mnemonic, passphrase, coin, changeIndex = 1) => {
     const seed = await bip39.mnemonicToSeed(mnemonic);
     const rootNode = deriveHdPrivateNodeFromSeed(seed, true);
     const baseDerivationPath = "m/44'/145'/0'/0";
+    const baseDerivationPathChange = "m/44'/145'/0'/1"; // Changed the path to use '1' for change addresses
+
+    // Derive the change address at the specified index
+    const changeNode = deriveHdPath(rootNode, `${baseDerivationPathChange}/${changeIndex}`);
 
     // Derive Alice's private key, public key, public key hash and address
     const aliceNode = deriveHdPath(rootNode, `${baseDerivationPath}/0`);
+
     if (typeof aliceNode === 'string') throw new Error();
     const alicePub = secp256k1.derivePublicKeyCompressed(aliceNode.privateKey);
     const alicePriv = aliceNode.privateKey;
     const alicePkh = hash160(alicePub);
     const aliceAddress = encodeCashAddress('bchtest', 'p2pkh', alicePkh);
-    return { aliceAddress, alicePriv }
+    const changePub = secp256k1.derivePublicKeyCompressed(changeNode.privateKey);
+    const changePriv = changeNode.privateKey;
+    const changePkh = hash160(changePub);
+    const changeAddress = encodeCashAddress('bchtest', 'p2pkh', changePkh);
+    return { aliceAddress, alicePriv, changeAddress }
 };
 
 export { generateMnemonic, generateKeys };
