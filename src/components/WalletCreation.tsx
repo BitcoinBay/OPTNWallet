@@ -11,6 +11,7 @@ const WalletCreation = () => {
     const [mnemonicPhrase, setMnemonicPhrase] = useState('');
     const [walletName, setWalletName] = useState('');
     const [passphrase, setPassphrase] = useState('');
+    const [isMainnet, setIsMainnet] = useState(false);
     const dbService = DatabaseService();
     const WalletManage = WalletManager();
     const navigate = useNavigate();
@@ -36,10 +37,13 @@ const WalletCreation = () => {
     };
 
     const handleCreateAccount = async () => {
-        const queryResult = await WalletManage.createWallet(walletName, mnemonicPhrase, passphrase);
-        if (queryResult) {
-            dispatch(setWalletId(walletName));
-            navigate(`/home/${walletName}`);
+        const walletData = await KeyGen.generateKeys(mnemonicPhrase, passphrase, 0, isMainnet);
+        if (walletData) {
+            const queryResult = await WalletManage.createWallet(walletName, mnemonicPhrase, passphrase);
+            if (queryResult) {
+                dispatch(setWalletId(walletName));
+                navigate(`/home/${walletName}`);
+            }
         }
     };
 
@@ -56,6 +60,26 @@ const WalletCreation = () => {
                 type="password"
                 onChange={(e) => setPassphrase(e.target.value)}
             />
+            <div>
+                <label>
+                    <input
+                        type="radio"
+                        value="mainnet"
+                        checked={isMainnet}
+                        onChange={() => setIsMainnet(true)}
+                    />
+                    Mainnet
+                </label>
+                <label>
+                    <input
+                        type="radio"
+                        value="testnet"
+                        checked={!isMainnet}
+                        onChange={() => setIsMainnet(false)}
+                    />
+                    Testnet/Chipnet
+                </label>
+            </div>
             <button onClick={ handleCreateAccount }>Create account</button>
         </div>
     );

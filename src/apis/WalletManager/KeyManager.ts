@@ -48,7 +48,7 @@ export default function KeyManager() {
         }
     }
 
-    async function createKeys(wallet_name : string, keyNumber: number): Promise<void> {
+    async function createKeys(wallet_name : string, keyNumber: number, isMainnet: boolean): Promise<void> {
         try {
             await dbService.ensureDatabaseStarted();
             const db = dbService.getDatabase();
@@ -66,10 +66,10 @@ export default function KeyManager() {
                 console.error("Mnemonic or passphrase not found for the given wallet name");
                 return;
             }
-            const mnemonic = JSON.stringify(result[0])
-            const passphrase = JSON.stringify(result[1])
+            const mnemonic = result.mnemonic;
+            const passphrase = result.passphrase;
 
-            const keys = await KeyGen.generateKeys(mnemonic, passphrase, keyNumber);
+            const keys = await KeyGen.generateKeys(mnemonic, passphrase, keyNumber, isMainnet);
 
             if (keys) {
                 const publicKey = keys.alicePub;
@@ -87,7 +87,7 @@ export default function KeyManager() {
                     balance : 0,
                     hd_index: keyNumber,
                     change_index: 0,
-                    prefix: "BCH"
+                    prefix: isMainnet ? "BCH" : "TBCH"
                 }
 
                 await ManageAddress.registerAddress(newAddress);

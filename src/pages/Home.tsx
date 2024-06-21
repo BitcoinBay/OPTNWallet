@@ -7,12 +7,12 @@ import UTXOManager from '../apis/UTXOManager/UTXOManager';
 const Home = () => {
     const [keyPairs, setKeyPairs] = useState<{ id: number, publicKey: Uint8Array; privateKey: Uint8Array; address: string }[]>([]);
     const [retrieve, setRetrieve] = useState(false);
+    const [isMainnet, setIsMainnet] = useState(true); // Add state for mainnet/testnet selection
     const KeyManage = KeyManager();
     const dbService = DatabaseService();
     const navigate = useNavigate();
     const { wallet_id } = useParams<{ wallet_id: string }>();
     const ManageUTXOs = UTXOManager();
-
 
     useEffect(() => {
         const retrieveWalletInformation = async () => {
@@ -29,15 +29,18 @@ const Home = () => {
     const fetchData = () => {
         setRetrieve(prev => !prev);
     };
+
     const storeUTXOs = async() => {
         if (wallet_id) {
             (await ManageUTXOs).checkNewUTXOs(wallet_id);
         }
-    }
+    };
 
     const handleGenerateKeys = async () => {
         if (wallet_id != null) {
-            await KeyManage.createKeys(wallet_id, keyPairs.length);
+            console.log(wallet_id)
+            console.log(keyPairs.length);
+            await KeyManage.createKeys(wallet_id, keyPairs.length, isMainnet); // Pass isMainnet parameter
             await dbService.saveDatabaseToFile();
             fetchData();
         }
@@ -45,7 +48,7 @@ const Home = () => {
 
     const handleUseForTransaction = async(address : string) => {
         navigate(`/createtransaction/${address}`)
-    }
+    };
 
     const uint8ArrayToHexString = (array: Uint8Array) => {
         return Array.from(array).map(byte => byte.toString(16).padStart(2, '0')).join('');
@@ -55,6 +58,26 @@ const Home = () => {
         <>
             <section className='flex flex-col min-h-screen'>
                 <div>Hello {wallet_id} </div>
+                <div>
+                    <label>
+                        <input
+                            type="radio"
+                            value="mainnet"
+                            checked={isMainnet}
+                            onChange={() => setIsMainnet(true)}
+                        />
+                        Mainnet
+                    </label>
+                    <label>
+                        <input
+                            type="radio"
+                            value="testnet"
+                            checked={!isMainnet}
+                            onChange={() => setIsMainnet(false)}
+                        />
+                        Testnet/Chipnet
+                    </label>
+                </div>
                 <div>Generate Public/Private Key here:</div>
                 <button onClick={handleGenerateKeys}>Generate</button>
                 <div>
@@ -63,11 +86,12 @@ const Home = () => {
                             <p>Public Key: {uint8ArrayToHexString(keyPair.publicKey)}</p>
                             <p>Private Key: {uint8ArrayToHexString(keyPair.privateKey)}</p>
                             <p>Address: {keyPair.address}</p>
-                            <button onClick = {() => {handleUseForTransaction(keyPair.address)} }>Use For Transaction</button>
+                            <p>${index}</p>
+                            <button onClick={() => handleUseForTransaction(keyPair.address)}>Use For Transaction</button>
                         </div>
                     ))}
                 </div>
-                <button onClick = { storeUTXOs }>sdhflsdkfs</button>
+                <button onClick={storeUTXOs}>Store UTXOs</button>
             </section>
         </>
     );

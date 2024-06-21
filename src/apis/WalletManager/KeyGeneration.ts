@@ -18,12 +18,11 @@ export default function KeyGeneration() {
         return mnemonic;
     };
 
-    async function generateKeys(mnemonic : string, passphrase : string, keyNumber : number) {
+    async function generateKeys(mnemonic : string, passphrase : string, keyNumber : number, isMainnet : boolean) {
         const seed = await bip39.mnemonicToSeed(mnemonic, passphrase);
         const rootNode = deriveHdPrivateNodeFromSeed(seed, true);
-        const baseDerivationPath = `m/44'/145'/${keyNumber}'/0`;
-        // const baseDerivationPathChange = "m/44'/145'/0'/1";
-        // const changeNode = deriveHdPath(rootNode, `${baseDerivationPathChange}/${changeIndex}`);
+        const coin_type = isMainnet ? 145 : 1;
+        const baseDerivationPath = `m/44'/${coin_type}'/${keyNumber}'/0`;
 
         const aliceNode = deriveHdPath(rootNode, `${baseDerivationPath}/0`);
 
@@ -37,12 +36,9 @@ export default function KeyGeneration() {
         const alicePkh = hash160(alicePub);
         console.log(alicePub);
         console.log(alicePriv);
-        const aliceAddress = encodeCashAddress('bchtest', 'p2pkh', alicePkh);
+        const addressPrefix = isMainnet ? 'bitcoincash' : 'bchtest';
+        const aliceAddress = encodeCashAddress(addressPrefix, 'p2pkh', alicePkh);
 
-        // const changePub = secp256k1.derivePublicKeyCompressed(changeNode.privateKey);
-        // const changePriv = changeNode.privateKey;
-        // const changePkh = hash160(changePub);
-        // const changeAddress = encodeCashAddress('bchtest', 'p2pkh', changePkh);
-        return { alicePub, alicePriv, aliceAddress }
+        return { alicePub, alicePriv, aliceAddress };
     };
 }
