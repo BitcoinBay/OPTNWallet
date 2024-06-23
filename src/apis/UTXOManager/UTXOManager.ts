@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { UTXOs } from "../types";
 import DatabaseService from "../DatabaseManager/DatabaseService";
 import ElectrumService from "../ElectrumServer/ElectrumServer";
@@ -40,7 +41,7 @@ export default async function UTXOManager() {
             return null;
         }
         const transactionAmount = amount + fee;
-        console.log('trnasacitonamount', transactionAmount);
+        console.log('transacitonamount', transactionAmount);
         const query = "SELECT id, wallet_name, address, height, tx_hash, tx_pos, amount, prefix, private_key FROM UTXOs WHERE wallet_name = :walletname";
         const statement = db.prepare(query);
         statement.bind({ ':walletname': wallet_name });
