@@ -1,6 +1,6 @@
 // src/components/RecoveryPhrase.tsx
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import WalletManager from '../apis/WalletManager/WalletManager';
 
 const RecoveryPhrase = () => {

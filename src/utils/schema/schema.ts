@@ -1,8 +1,8 @@
 export const createTables = (db: any) => {
   // Drop and create existing tables
-  db.run(`
-    DROP TABLE IF EXISTS UTXOs;
-  `);
+  // db.run(`
+  //   DROP TABLE IF EXISTS UTXOs;
+  // `);
   // db.run(`
   //     DROP TABLE IF EXISTS wallets;
   // `);
@@ -22,7 +22,7 @@ export const createTables = (db: any) => {
   //   DROP TABLE IF EXISTS cashscript_addresses;
   // `);
   // db.run(`
-  //   DROP TABLE IF NOT EXISTS instantiated_contracts;
+  //   DROP TABLE IF EXISTS instantiated_contracts;
   // `);
 
   db.run(`
@@ -53,7 +53,7 @@ export const createTables = (db: any) => {
 
   const getAllKeysQuery = db.prepare('SELECT * FROM wallets;');
   while (getAllKeysQuery.step()) {
-    const row = getAllKeysQuery.getAsObject();
+    // const row = getAllKeysQuery.getAsObject();
     // console.log('row', row);
   }
 
@@ -129,6 +129,7 @@ export const createTables = (db: any) => {
   db.run(`
     CREATE TABLE IF NOT EXISTS instantiated_contracts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      wallet_id INT,
       contract_name VARCHAR(255),
       address VARCHAR(255) UNIQUE,
       token_address VARCHAR(255),
@@ -137,7 +138,8 @@ export const createTables = (db: any) => {
       bytecode TEXT,
       balance INT,
       utxos TEXT,
-      created_at TEXT
+      created_at TEXT,
+      FOREIGN KEY(wallet_id) REFERENCES wallets(id)
     );
   `);
 };

@@ -1,6 +1,6 @@
 // src/pages/Settings.tsx
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import RecoveryPhrase from '../components/RecoveryPhrase';
 import AboutView from '../components/AboutView';
 import TermsOfUse from '../components/TermsOfUse';

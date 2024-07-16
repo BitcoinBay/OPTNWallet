@@ -1,11 +1,13 @@
 // @ts-nocheck
 
 import React, { useState, useEffect } from 'react';
+import { useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import TransactionBuilders from '../apis/TransactionManager/TransactionBuilder3';
 import DatabaseService from '../apis/DatabaseManager/DatabaseService';
 import RegularUTXOs from '../components/RegularUTXOs';
 import CashTokenUTXOs from '../components/CashTokenUTXOs';
+import ContractManager from '../apis/ContractManager/ContractManager';
 
 interface UTXO {
   id: number;
@@ -30,14 +32,30 @@ interface TransactionOutput {
     category: string;
   };
 }
+interface Contracts {
+  id: number;
+  wallet_id: number;
+  contract_name: string;
+  address: string,
+  token_address: string,
+  opcount: number;
+  bytesize: number;
+  bytecode: string;
+  balance: number;
+  utxos: string;
+  created_at: string;
+}
 
 const Transaction = () => {
-  const [walletId, setWalletId] = useState<number | null>(null);
   const [addresses, setAddresses] = useState<
     { address: string; tokenAddress: string }[]
   >([]);
+  const [error, setError] = useState(false);
+  const [contracts, setContracts] = useState<Contracts[]>([]);
+  const [selectedContracts, setSelectedContracts] = useState<string[]>([]);
   const [selectedAddresses, setSelectedAddresses] = useState<string[]>([]);
   const [utxos, setUtxos] = useState<UTXO[]>([]);
+  const [availableContracts, setAvailableContracts] = useState<any[]>([]);
   const [selectedUtxos, setSelectedUtxos] = useState<UTXO[]>([]);
   const [outputs, setOutputs] = useState<TransactionOutput[]>([]);
   const [recipientAddress, setRecipientAddress] = useState('');
@@ -50,24 +68,47 @@ const Transaction = () => {
   const [transactionId, setTransactionId] = useState('');
   const [finalOutputs, setFinalOutputs] = useState<TransactionOutput[]>([]);
   const navigate = useNavigate();
+  const wallet_id = useSelector(
+    (state: RootState) => state.wallet_id.currentWalletId
+  );
 
   useEffect(() => {
-    const fetchWalletId = async () => {
-      const activeWalletId = 1; // Replace this with the actual logic to fetch the active wallet ID
-      setWalletId(activeWalletId);
+    const loadAvailableContracts = async () => {
+      try {
+        const contractManager = ContractManager();
+        const contracts = contractManager.listAvailableArtifacts();
+        if (!contracts || contracts.length === 0) {
+          throw new Error('No available contracts found');
+        }
+        setAvailableContracts(contracts);
+      } catch (err) {
+        console.log(err)
+      }
     };
-    fetchWalletId();
+
+    const loadContractInstances = async () => {
+      try {
+        const contractManager = ContractManager();
+        const instances = await contractManager.fetchContractInstances(wallet_id);
+        setContractInstances(instances);
+      } catch (err) {
+        setError(err.message);
+      }
+    };
+
+    loadAvailableContracts();
+    loadContractInstances();
   }, []);
 
   useEffect(() => {
-    const fetchAddressesAndUTXOs = async (walletId: number) => {
+    const fetchAddressesUTXOsContracts = async (wallet_id: number) => {
       const dbService = DatabaseService();
       await dbService.ensureDatabaseStarted();
       const db = dbService.getDatabase();
 
       const addressesQuery = `SELECT address, token_address FROM keys WHERE wallet_id = ?`;
       const addressesStatement = db.prepare(addressesQuery);
-      addressesStatement.bind([walletId]);
+      addressesStatement.bind([wallet_id]);
       const fetchedAddresses: { address: string; tokenAddress: string }[] = [];
       while (addressesStatement.step()) {
         const row = addressesStatement.getAsObject();
@@ -81,7 +122,7 @@ const Transaction = () => {
 
       const utxosQuery = `SELECT * FROM UTXOs WHERE wallet_id = ?`;
       const utxosStatement = db.prepare(utxosQuery);
-      utxosStatement.bind([walletId]);
+      utxosStatement.bind([wallet_id]);
       const fetchedUTXOs: UTXO[] = [];
       const utxoSet = new Set();
       while (utxosStatement.step()) {
@@ -100,17 +141,45 @@ const Transaction = () => {
             tx_hash: row.tx_hash as string,
             tx_pos: row.tx_pos as number,
             height: row.height as number,
-            privateKey: await fetchPrivateKey(walletId, row.address), // @ts-ignore
+            privateKey: await fetchPrivateKey(wallet_id, row.address), // @ts-ignore
             token_data: row.token_data ? JSON.parse(row.token_data) : undefined, // @ts-ignore
           });
         }
       }
       utxosStatement.free();
       setUtxos(fetchedUTXOs);
+
+      console.log("wallet_id", wallet_id);
+      const contractsQuery = `SELECT * FROM instantiated_contracts WHERE wallet_id = ?`;
+      const contractsStatement = db.prepare(contractsQuery);
+      contractsStatement.bind([wallet_id]);
+      const fetchedContracts: Contracts[] = [];
+      while (contractsStatement.step()) {
+        const row = contractsStatement.getAsObject();
+        fetchedContracts.push({
+          id: row.id as number,
+          wallet_id: row.wallet_id as number,
+          contract_name: row.contract_name as string,
+          address: row.address as string,
+          token_address: row.token_address as string,
+          opcount: row.opcount as number,
+          bytesize: row.opcount as number,
+          bytecode: row.bytecode as string,
+          balance: row.balance as number,
+          utxos: JSON.parse(row.utxos).map((utxo) => ({
+            ...utxo,
+            satoshis: BigInt(utxo.satoshis), // Convert satoshis back to BigInt
+          })),
+          created_at: row.created_at as string
+        });
+      }
+      contractsStatement.free();
+      setContracts(fetchedContracts);
+      console.log("FETCHED CONTRACTS", fetchedContracts);
     };
 
     const fetchPrivateKey = async (
-      walletId: number,
+      wallet_id: number,
       address: string
     ): Promise<Uint8Array> => {
       const dbService = DatabaseService();
@@ -118,7 +187,7 @@ const Transaction = () => {
       const db = dbService.getDatabase();
       const privateKeyQuery = `SELECT private_key FROM keys WHERE wallet_id = ? AND address = ?`;
       const privateKeyStatement = db.prepare(privateKeyQuery);
-      privateKeyStatement.bind([walletId, address]);
+      privateKeyStatement.bind([wallet_id, address]);
       let privateKey = new Uint8Array();
       while (privateKeyStatement.step()) {
         const row = privateKeyStatement.getAsObject();
@@ -128,10 +197,10 @@ const Transaction = () => {
       return privateKey;
     };
 
-    if (walletId !== null) {
-      fetchAddressesAndUTXOs(walletId);
+    if (wallet_id !== null) {
+      fetchAddressesUTXOsContracts(wallet_id);
     }
-  }, [walletId]);
+  }, [wallet_id]);
 
   const toggleAddressSelection = (address: string) => {
     if (selectedAddresses.includes(address)) {
@@ -142,6 +211,17 @@ const Transaction = () => {
       );
     } else {
       setSelectedAddresses([...selectedAddresses, address]);
+    }
+  };
+  const toggleContractSelection = (address: string) => {
+    if (selectedContracts.includes(address)) {
+      setSelectedContracts(
+        selectedContracts.filter(
+          (selectedContracts) => selectedContracts !== address
+        )
+      );
+    } else {
+      setSelectedContracts([...selectedContracts, address]);
     }
   };
 
@@ -275,7 +355,7 @@ const Transaction = () => {
   };
 
   const returnHome = async () => {
-    navigate(`/home/${walletId}`);
+    navigate(`/home/${wallet_id}`);
   };
 
   const totalSelectedUtxoAmount = selectedUtxos.reduce(
@@ -490,6 +570,25 @@ const Transaction = () => {
           Total Selected UTXO Amount: {totalSelectedUtxoAmount}
         </h3>
       </div>
+      
+      <h3 className="text-lg font-semibold mb-2">
+        Select Contracts to Use
+      </h3>
+      {contracts.map((contractObject, index) =>(
+        <div
+        key={index}
+        className="flex items-center mb-2 break-words whitespace-normal"
+      >
+        <input
+          type="checkbox"
+          checked={selectedContracts.includes(contractObject.address)}
+          onChange={() => toggleContractSelection(contractObject.address)}
+          className="mr-2"
+        />
+        <span className="break-words">{`Contract Type: ${contractObject.contract_name} Address: ${contractObject.address}`}</span>
+      </div>
+      ))}
+
       <div className="mb-6">
         <button
           onClick={buildTransaction}

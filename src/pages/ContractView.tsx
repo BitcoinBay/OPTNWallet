@@ -30,17 +30,17 @@ const ContractView = () => {
         }
         setAvailableContracts(contracts);
       } catch (err) {
-        setError(err.message);
+        setError(err)
       }
     };
 
     const loadContractInstances = async () => {
       try {
         const contractManager = ContractManager();
-        const instances = await contractManager.fetchContractInstances();
+        const instances = await contractManager.fetchContractInstances(wallet_id);
         setContractInstances(instances);
       } catch (err) {
-        setError(err.message);
+        setError(err)
       }
     };
 
@@ -61,7 +61,7 @@ const ContractView = () => {
           }
           setConstructorArgs(artifact.constructorInputs || []);
         } catch (err) {
-          setError(err.message);
+          setError(err)
         }
       }
     };
@@ -89,19 +89,21 @@ const ContractView = () => {
       ) {
         throw new Error('All constructor arguments must be provided');
       }
+      console.log('Args:', args);
 
       const contract = await contractManager.createContract(
         selectedContractFile,
+        wallet_id,
         args
       );
       setContractDetails(contract);
 
       // Reload contract instances
-      const instances = await contractManager.fetchContractInstances();
+      const instances = await contractManager.fetchContractInstances(wallet_id);
       setContractInstances(instances);
     } catch (err) {
       console.error('Error creating contract:', err);
-      setError(err.message);
+      setError(err)
     }
   };
 
@@ -111,10 +113,10 @@ const ContractView = () => {
       await contractManager.deleteContractInstance(contractId);
 
       // Reload contract instances
-      const instances = await contractManager.fetchContractInstances();
+      const instances = await contractManager.fetchContractInstances(wallet_id);
       setContractInstances(instances);
     } catch (err) {
-      setError(err.message);
+      setError(err)
     }
   };
 
@@ -182,6 +184,9 @@ const ContractView = () => {
               >
                 <div className="mb-2">
                   <strong>Contract Name:</strong> {instance.contract_name}
+                </div>
+                <div className="mb-2">
+                  <strong>Wallet ID:</strong> {instance.wallet_id}
                 </div>
                 <div className="mb-2">
                   <strong>Address:</strong> {instance.address}

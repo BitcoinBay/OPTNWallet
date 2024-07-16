@@ -18,9 +18,10 @@ export default function ContractManager() {
     loadArtifact,
   };
 
-  async function createContract(artifactName, constructorArgs) {
+  async function createContract(artifactName, wallet_id, constructorArgs) {
     try {
       const artifact = loadArtifact(artifactName);
+      console.log("args", constructorArgs);
       if (!artifact) {
         throw new Error(`Artifact ${artifactName} could not be loaded`);
       }
@@ -30,7 +31,7 @@ export default function ContractManager() {
 
       if (
         artifact.constructorInputs.length > 0 &&
-        (!args || args.length !== artifact.constructorInputs.length)
+        (!constructorArgs || constructorArgs.length !== artifact.constructorInputs.length)
       ) {
         throw new Error('Constructor arguments are required');
       }
@@ -55,9 +56,11 @@ export default function ContractManager() {
       const existingContract = await getContractInstanceByAddress(
         contract.address
       );
+      console.log("wallet_id at save", wallet_id)
       if (!existingContract) {
         await saveContractInstance(
           artifact.contractName,
+          wallet_id,
           contract,
           balance,
           utxos
@@ -171,17 +174,18 @@ export default function ContractManager() {
     }
   }
 
-  async function saveContractInstance(contractName, contract, balance, utxos) {
+  async function saveContractInstance(contractName, wallet_id, contract, balance, utxos) {
     await dbService.ensureDatabaseStarted();
     const db = dbService.getDatabase();
-
+    console.log("wallletididdd", wallet_id);
     const insertQuery = `
       INSERT INTO instantiated_contracts 
-      (contract_name, address, token_address, opcount, bytesize, bytecode, balance, utxos, created_at) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (contract_name, wallet_id, address, token_address, opcount, bytesize, bytecode, balance, utxos, created_at) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
     const params = [
       contractName,
+      wallet_id,
       contract.address,
       contract.tokenAddress,
       contract.opcount,
@@ -216,18 +220,19 @@ export default function ContractManager() {
     await dbService.saveDatabaseToFile();
   }
 
-  async function fetchContractInstances() {
+  async function fetchContractInstances(wallet_id) {
     await dbService.ensureDatabaseStarted();
     const db = dbService.getDatabase();
 
-    const query = 'SELECT * FROM instantiated_contracts';
+    const query = 'SELECT * FROM instantiated_contracts where wallet_id = ?';
     const statement = db.prepare(query);
-
+    statement.bind([wallet_id])
     const instances = [];
     while (statement.step()) {
       const row = statement.getAsObject();
       instances.push({
         ...row,
+        wallet_id: wallet_id,
         balance: BigInt(row.balance), // Convert balance back to BigInt
         utxos: JSON.parse(row.utxos).map((utxo) => ({
           ...utxo,
@@ -235,6 +240,7 @@ export default function ContractManager() {
         })),
       });
     }
+
     statement.free();
     return instances;
   }
