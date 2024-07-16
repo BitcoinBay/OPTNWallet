@@ -21,6 +21,9 @@ export const createTables = (db: any) => {
   // db.run(`
   //   DROP TABLE IF EXISTS cashscript_addresses;
   // `);
+  // db.run(`
+  //   DROP TABLE IF NOT EXISTS instantiated_contracts;
+  // `);
 
   db.run(`
     CREATE TABLE IF NOT EXISTS wallets (
@@ -39,6 +42,8 @@ export const createTables = (db: any) => {
       public_key BLOB,
       private_key BLOB,
       address VARCHAR(255),
+      token_address VARCHAR(255),
+      pubkey_hash BLOB,
       account_index INT,
       change_index INT,
       address_index INT,
@@ -57,6 +62,7 @@ export const createTables = (db: any) => {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       wallet_id INT,
       address VARCHAR(255) NOT NULL,
+      token_address VARCHAR(255),
       balance INT,
       hd_index INT,
       change_index BOOLEAN,
@@ -92,16 +98,6 @@ export const createTables = (db: any) => {
     );
   `);
 
-  // Add a trigger to reset the autoincrement value for the wallets table
-  db.run(`
-    CREATE TRIGGER IF NOT EXISTS reset_wallet_id
-    AFTER DELETE ON wallets
-    BEGIN
-      UPDATE sqlite_sequence SET seq = (SELECT MAX(id) FROM wallets) WHERE name = 'wallets';
-    END;
-  `);
-
-  // Create new tables for CashScript artifacts and addresses
   db.run(`
     CREATE TABLE IF NOT EXISTS cashscript_artifacts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -127,6 +123,21 @@ export const createTables = (db: any) => {
       prefix VARCHAR(255),
       FOREIGN KEY(wallet_id) REFERENCES wallets(id),
       FOREIGN KEY(artifact_id) REFERENCES cashscript_artifacts(id)
+    );
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS instantiated_contracts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      contract_name VARCHAR(255),
+      address VARCHAR(255) UNIQUE,
+      token_address VARCHAR(255),
+      opcount INT,
+      bytesize INT,
+      bytecode TEXT,
+      balance INT,
+      utxos TEXT,
+      created_at TEXT
     );
   `);
 };

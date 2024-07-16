@@ -22,6 +22,8 @@ export default function KeyManager() {
       publicKey: Uint8Array;
       privateKey: Uint8Array;
       address: string;
+      tokenAddress: string;
+      pubkeyHash: Uint8Array;
       accountIndex: number;
       changeIndex: number;
       addressIndex: number;
@@ -40,6 +42,8 @@ export default function KeyManager() {
                     public_key, 
                     private_key, 
                     address,
+                    token_address,
+                    pubkey_hash,
                     account_index,
                     change_index,
                     address_index
@@ -54,6 +58,8 @@ export default function KeyManager() {
         publicKey: Uint8Array;
         privateKey: Uint8Array;
         address: string;
+        tokenAddress: string;
+        pubkeyHash: Uint8Array;
         accountIndex: number;
         changeIndex: number;
         addressIndex: number;
@@ -66,13 +72,13 @@ export default function KeyManager() {
           publicKey: new Uint8Array(row.public_key),
           privateKey: new Uint8Array(row.private_key),
           address: row.address as string,
+          tokenAddress: row.token_address as string,
+          pubkeyHash: new Uint8Array(row.pubkey_hash),
           accountIndex: row.account_index as number,
           changeIndex: row.change_index as number,
           addressIndex: row.address_index as number,
         });
       }
-
-      // console.log("Statement:", statement)
 
       statement.free();
       return result;
@@ -107,13 +113,12 @@ export default function KeyManager() {
 
       if (!result) {
         console.error(
-          'Mnemonic or passphrase not found for the given wallet name'
+          'Mnemonic or passphrase not found for the given wallet id'
         );
         return;
       }
       const mnemonic = JSON.stringify(result[0]).replace(/^"|"$/g, '');
       const passphrase = JSON.stringify(result[1]).replace(/^"|"$/g, '');
-      // console.log("PASSPHRASE: ", passphrase)
 
       const keys = await KeyGen.generateKeys(
         mnemonic,
@@ -127,16 +132,20 @@ export default function KeyManager() {
         const publicKey = keys.alicePub;
         const privateKey = keys.alicePriv;
         const address = keys.aliceAddress;
+        const tokenAddress = keys.aliceTokenAddress;
+        const pubkeyHash = keys.alicePkh;
 
         const insertQuery = db.prepare(`
-                    INSERT INTO keys (wallet_id, public_key, private_key, address, account_index, change_index, address_index) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?);
+                    INSERT INTO keys (wallet_id, public_key, private_key, address, token_address, pubkey_hash, account_index, change_index, address_index) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
                 `);
         insertQuery.run([
           wallet_id,
           publicKey,
           privateKey,
           address,
+          tokenAddress,
+          pubkeyHash,
           accountNumber,
           changeNumber,
           addressNumber,
@@ -153,11 +162,6 @@ export default function KeyManager() {
 
         await ManageAddress.registerAddress(newAddress);
         await dbService.saveDatabaseToFile();
-        const query = 'SELECT * FROM addresses';
-        const statement = db.prepare(query);
-        const wow = statement.run();
-        statement.free();
-        // console.log("all addresses in the database", wow)
       }
     } catch (error) {
       console.error('Error creating keys:', error);
