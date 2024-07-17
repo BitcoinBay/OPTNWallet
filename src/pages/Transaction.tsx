@@ -36,8 +36,8 @@ interface Contracts {
   id: number;
   wallet_id: number;
   contract_name: string;
-  address: string,
-  token_address: string,
+  address: string;
+  token_address: string;
   opcount: number;
   bytesize: number;
   bytecode: string;
@@ -82,14 +82,15 @@ const Transaction = () => {
         }
         setAvailableContracts(contracts);
       } catch (err) {
-        console.log(err)
+        console.log(err);
       }
     };
 
     const loadContractInstances = async () => {
       try {
         const contractManager = ContractManager();
-        const instances = await contractManager.fetchContractInstances(wallet_id);
+        const instances =
+          await contractManager.fetchContractInstances(wallet_id);
         setContractInstances(instances);
       } catch (err) {
         setError(err.message);
@@ -149,7 +150,7 @@ const Transaction = () => {
       utxosStatement.free();
       setUtxos(fetchedUTXOs);
 
-      console.log("wallet_id", wallet_id);
+      console.log('wallet_id', wallet_id);
       const contractsQuery = `SELECT * FROM instantiated_contracts WHERE wallet_id = ?`;
       const contractsStatement = db.prepare(contractsQuery);
       contractsStatement.bind([wallet_id]);
@@ -170,12 +171,12 @@ const Transaction = () => {
             ...utxo,
             satoshis: BigInt(utxo.satoshis), // Convert satoshis back to BigInt
           })),
-          created_at: row.created_at as string
+          created_at: row.created_at as string,
         });
       }
       contractsStatement.free();
       setContracts(fetchedContracts);
-      console.log("FETCHED CONTRACTS", fetchedContracts);
+      console.log('FETCHED CONTRACTS', fetchedContracts);
     };
 
     const fetchPrivateKey = async (
@@ -238,6 +239,23 @@ const Transaction = () => {
       }
     });
   };
+  const handleContractClick = (contract: Contracts) => {
+    setSelectedContracts((prevSelectedContracts) => {
+      if (prevSelectedContracts.some((selectedContract) => selectedContract.address === contract.address)) {
+        const newSelectedContracts = prevSelectedContracts.filter((selectedContract) => selectedContract.address !== contract.address);
+        return newSelectedContracts;
+      } else {
+        const newSelectedContracts = [...prevSelectedContracts, contract];
+        return newSelectedContracts;
+      }
+    });
+  };
+  
+
+  const checkTransactionDetails = () => {
+    console.log(selectedContracts);
+    console.log(selectedUtxos);
+  }
 
   const addOutput = () => {
     if (recipientAddress && (transferAmount || tokenAmount)) {
@@ -392,6 +410,23 @@ const Transaction = () => {
           </div>
         ))}
       </div>
+      <h3 className="text-lg font-semibold mb-2">
+        Select Contracts to Use (Optional)
+      </h3>
+      {contracts.map((contractObject, index) => (
+        <div
+          key={index}
+          className="flex items-center mb-2 break-words whitespace-normal"
+        >
+          <input
+            type="checkbox"
+            checked={selectedContracts.includes(contractObject.address)}
+            onChange={() => toggleContractSelection(contractObject.address)}
+            className="mr-2"
+          />
+          <span className="break-words">{`Contract Type: ${contractObject.contract_name} Address: ${contractObject.address}`}</span>
+        </div>
+      ))}
       <div className="mb-6">
         <h3 className="text-lg font-semibold mb-2">Regular UTXOs</h3>
         {addresses
@@ -426,6 +461,27 @@ const Transaction = () => {
                 ))}
             </div>
           ))}
+      </div>
+      <div className="mb-6">
+        <h3 className="text-lg font-semibold mb-2">Contracts</h3>
+        {contracts
+          .filter((contractObj) => selectedContracts.includes(contractObj.address))
+          .map((contractObj, index) => (
+            <div key={index} className="p-2 border rounded-lg mb-2">
+              <button
+                key={contractObj.address}
+                onClick={() =>handleContractClick(contractObj)}
+                className={`block w-full text-left p-2 mb-2 border rounded-lg break-words whitespace-normal ${
+                  selectedContracts.includes(contractObj.address)
+                    ? 'bg-blue-100'
+                    : 'bg-white'
+                }`}
+              >
+                {`Contract Type: ${contractObj.contract_name}, Address: ${contractObj.address}`}
+              </button>
+            </div>
+          ))}
+
       </div>
       <div className="mb-6">
         <h3 className="text-lg font-semibold mb-2">CashToken UTXOs</h3>
@@ -472,6 +528,19 @@ const Transaction = () => {
             className="flex items-center mb-2 break-words whitespace-normal"
           >
             <span className="break-words">{`Address: ${utxo.address}, Amount: ${utxo.amount}, Tx Hash: ${utxo.tx_hash}, Position: ${utxo.tx_pos}, Height: ${utxo.height}`}</span>
+          </div>
+        ))}
+      </div>
+      <div className="mb-6">
+        <h3 className="text-lg font-semibold mb-2">
+          Selected Contract Inputs
+        </h3>
+        {selectedContracts.map((contractObj, index) => (
+          <div
+            key={index}
+            className="flex items-center mb-2 break-words whitespace-normal"
+          >
+            <span className="break-words">{`Address: ${contractObj.address}, Amount: ${contractObj.amount}`}</span>
           </div>
         ))}
       </div>
@@ -570,24 +639,6 @@ const Transaction = () => {
           Total Selected UTXO Amount: {totalSelectedUtxoAmount}
         </h3>
       </div>
-      
-      <h3 className="text-lg font-semibold mb-2">
-        Select Contracts to Use
-      </h3>
-      {contracts.map((contractObject, index) =>(
-        <div
-        key={index}
-        className="flex items-center mb-2 break-words whitespace-normal"
-      >
-        <input
-          type="checkbox"
-          checked={selectedContracts.includes(contractObject.address)}
-          onChange={() => toggleContractSelection(contractObject.address)}
-          className="mr-2"
-        />
-        <span className="break-words">{`Contract Type: ${contractObject.contract_name} Address: ${contractObject.address}`}</span>
-      </div>
-      ))}
 
       <div className="mb-6">
         <button
@@ -603,6 +654,12 @@ const Transaction = () => {
           Send Transaction
         </button>
       </div>
+      <button
+        onClick={checkTransactionDetails}
+        className="bg-red-500 text-white py-2 px-4 rounded"
+      >
+        check
+      </button>
       <button
         onClick={returnHome}
         className="bg-red-500 text-white py-2 px-4 rounded"
