@@ -12,6 +12,9 @@ import WalletManager from '../apis/WalletManager/WalletManager';
 import { useNavigate } from 'react-router-dom';
 import { resetTransactions } from '../redux/transactionSlice';
 import NetworkSettingsView from '../components/NetworkSettingsView';
+import { Html5QrcodeScanner } from 'html5-qrcode';
+import { Web3Wallet } from '@walletconnect/web3wallet';
+import { Core } from '@walletconnect/core';
 
 const Settings = () => {
   const [selectedOption, setSelectedOption] = useState('');
@@ -24,6 +27,36 @@ const Settings = () => {
     if (navBar) {
       setNavBarHeight(navBar.offsetHeight);
     }
+
+    const core = new Core({
+      projectId: '3fd234b8e2cd0e1da4bc08a0011bbf64',
+    });
+
+    Web3Wallet.init({
+      core,
+      metadata: {
+        name: 'Cashonize',
+        description: 'Cashonize BitcoinCash Web Wallet',
+        url: 'cashonize.com/',
+        icons: ['https://cashonize.com/images/favicon.ico'],
+      },
+    }).then(async (web3wallet) => {
+      const updateProposal = (proposal) => {
+        const proposalParent = document.getElementById('wc-session-approval');
+
+        const meta = proposal.params.proposer.metadata;
+        const peerName = meta.name;
+        const approvalHtml = /* html */ `
+      <div id="proposal-${proposal.id}" style="display: flex; align-items: center; flex-direction: row; gap: 10px;">
+        <div id="proposal-app-icon" style="display: flex; align-items: center; height: 64px; width: 64px;"><img src="${meta.icons[0]}"></div>
+        <div style="display: flex; flex-direction: column; width: 100%;">
+          <div id="proposal-app-name">${peerName}</div>
+          <div id="proposal-app-url"><a href="${meta.url}" target="_blank">${meta.url}</a></div>
+        </div>
+      </div>`;
+        proposalParent.innerHTML = approvalHtml;
+      };
+    });
   }, []);
 
   const handleOptionClick = (option: string) => {
@@ -85,6 +118,42 @@ const Settings = () => {
       <h1 className="text-2xl font-bold mb-4 text-center">Settings</h1>
       {!selectedOption ? (
         <div className="mb-4">
+          <button
+            onClick={() => {
+              // document.getElementById('wc-session-scan-modal').style.display =
+              // 'flex';
+              const html5QrcodeScanner = new Html5QrcodeScanner(
+                'reader',
+                {
+                  fps: 3,
+                  qrbox: { width: 250, height: 250 },
+                  formatsToSupport: [0],
+                },
+                /* verbose= */ false
+              );
+              html5QrcodeScanner.render(
+                async (decodedText) => {
+                  // document.getElementById(
+                  //   'wc-session-scan-modal'
+                  // ).style.display = 'none';
+                  await html5QrcodeScanner?.clear();
+                  // document.getElementById('wcUri').value = decodedText;
+                  try {
+                    await web3wallet.core.pairing.pair({ uri: 'uri' });
+                    // document.getElementById('wcUri').value = '';
+                  } catch (err) {
+                    alert(`Error connecting with dApp:\n${err.mesage ?? err}`);
+                  } finally {
+                    // connectButton.disabled = false;
+                  }
+                },
+                () => {}
+              );
+            }}
+            className="block w-full py-2 px-4 border rounded-lg mb-2 mx-2"
+          >
+            Scan QR Code
+          </button>
           <button
             onClick={() => handleOptionClick('recovery')}
             className="block w-full py-2 px-4 border rounded-lg mb-2 mx-2"
