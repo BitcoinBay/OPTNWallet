@@ -18,6 +18,12 @@ import transferWithTimeoutArtifact from './artifacts/transfer_with_timeout.json'
 // import announcementArtifact from './artifacts/announcement.json';
 import escrowArtifact from './artifacts/escrow.json';
 import escrowMS2Artifact from './artifacts/escrowMS2.json';
+import CashStarterArtifact from './artifacts/CashStarter/CashStarter.json';
+import CashStarterManagerArtifact from './artifacts/CashStarter/CashStarterManager.json';
+import CashStarterCancelArtifact from './artifacts/CashStarter/CashStarterCancel.json';
+import CashStarterClaimArtifact from './artifacts/CashStarter/CashStarterClaim.json';
+import CashStarterRefundArtifact from './artifacts/CashStarter/CashStarterRefund.json';
+import CashStarterStopArtifact from './artifacts/CashStarter/CashStarterStop.json';
 
 export default function ContractManager() {
   const dbService = DatabaseService();
@@ -31,6 +37,12 @@ export default function ContractManager() {
     escrow: escrowArtifact,
     escrowMS2: escrowMS2Artifact,
     // bip38: bip38Artifact,
+    CashStarter: CashStarterArtifact,
+    CashStarterManager: CashStarterManagerArtifact,
+    CashStarterCancel: CashStarterCancelArtifact,
+    CashStarterClaim: CashStarterClaimArtifact,
+    CashStarterRefund: CashStarterRefundArtifact,
+    CashStarterStop: CashStarterStopArtifact,
   };
 
   return {
