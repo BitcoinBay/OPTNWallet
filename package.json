@@ -33,6 +33,8 @@
     "@electrum-cash/network": "^3.3.0",
     "@reduxjs/toolkit": "^2.2.5",
     "@types/sql.js": "^1.4.9",
+    "@walletconnect/modal": "^2.7.0",
+    "@walletconnect/sign-client": "^2.19.1",
     "axios": "^1.7.7",
     "bip39": "^3.1.0",
     "buffer": "^6.0.3",

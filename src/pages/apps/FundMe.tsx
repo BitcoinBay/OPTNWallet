@@ -4,11 +4,27 @@ import { useSelector } from 'react-redux';
 import { RootState } from '../../redux/store';
 import ContractModal from '../../components/ContractModal';
 import { Toast } from '@capacitor/toast';
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 import { Utxo } from 'cashscript';
-import ElectrumService from '../../services/ElectrumService';
+import ElectrumServer from '../../apis/ElectrumServer/ElectrumServer';
 import { AddressCashStarter, MasterCategoryID } from './utils/values';
+import SignClient from '@walletconnect/sign-client'
+import { WalletConnectModal } from '@walletconnect/modal';
 
+interface ElectrumUtxo {
+  height: number;
+  token?: {
+      amount: string;
+      category: string;
+      nft?: {
+          capability: string;
+          commitment: string;
+      }
+  };
+  tx_hash: string;
+  tx_pos: number;
+  value: number;
+}
 interface ActionParameter {
     name: string;
     type: string;
@@ -22,17 +38,51 @@ interface AppAction {
     parameters: ActionParameter[];
     handler: (params: any) => Promise<void>;
 }
-
+interface CampaignUtxo extends ElectrumUtxo {
+  name: string;
+  owner: string;
+  shortDescription: string;
+  banner: string;
+  endDate: string;
+}
+interface ArchivedCampaign {
+  id: number;
+  name: string;
+  owner: string;
+  shortDescription: string;
+  banner: string;
+  endDate: string;
+}
 const FundMeApp = () => {
   const [selectedAction, setSelectedAction] = useState<AppAction | null>(null);
   const [isActionModalOpen, setIsActionModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
-  const [campaigns, setCampaigns] = useState<Utxo[]>([]);
   const [totalCampaigns, setTotalCampaigns] = useState<number>(0);
   const [totalBCHRaised, setTotalBCHRaised] = useState<number>(0);
   const [totalPledges, setTotalPledges] = useState<number>(0);
+  const [walletConnectInstance, setWalletConnectInstance] = useState<SignClient | null>(null);
+  const [walletConnectSession, setWalletConnectSession] = useState<any>(null);
+  const [connectedChain, setConnectedChain] = useState<string | null>('bch:bchtest');
+  const [usersAddress, setUsersAddress] = useState<string | null>(null);
+  const [isEmpty, setIsEmpty] = useState(false);
+  const [campaigns, setCampaigns] = useState<ElectrumUtxo[]>([]);
+  const [expiredCampaigns, setExpiredCampaigns] = useState<ElectrumUtxo[]>([]);
+  const [campaignsMap, setCampaignsMap] = useState<Map<number, CampaignUtxo | null>>(new Map());
+  const [expiredCampaignsMap, setExpiredCampaignsMap] = useState<Map<number, CampaignUtxo | null>>(new Map());
+  const [archivedCampaignsMap, setArchivedCampaignsMap] = useState<Map<number, ArchivedCampaign | null>>(new Map());
+  const [campaignType, setCampaignType] = useState<string>('active');
+  //connectedChain: network === 'mainnet' ? 'bch:bitcoincash' : 'bch:bchtest' 
+
+  const hexToDecimal = (hex: string): number => {
+    const bigEndianHex = hex.match(/.{2}/g)?.reverse().join('') ?? '0';
+    return parseInt(bigEndianHex, 16);
+  };
+
+  // Create an instance of ElectrumServer
+  const electrumServer = ElectrumServer();
+
 
   useEffect(() => {
     async function fetchStats() {
@@ -54,14 +104,276 @@ const FundMeApp = () => {
     fetchStats();
   }, []);
 
-  //////////////////////////////////////////////////
+//////////////////////////////////////////////////
+////////// Prepare Wallet Connect Modal
+//////////////////////////////////////////////////
+  const walletConnectModal = new WalletConnectModal({
+    projectId: '',
+    themeMode: 'dark',
+    themeVariables: {
+      '--wcm-background-color': '#20c997',
+      '--wcm-accent-color': '#20c997',
+      },
+    explorerExcludedWalletIds: 'ALL',
+  });
+
+  const requiredNamespaces = {
+    bch: {
+      chains: [connectedChain],
+      methods: ['bch_getAddresses', 'bch_signTransaction', 'bch_signMessage'],
+      events: ['addressesChanged'],
+    },
+  };  
+
+////////////////////////////////////////////////// 
+////////// Wallet Connect V2
+//////////////////////////////////////////////////
+  //connection settings
+  const signClient = async () => {
+    return await SignClient.init({
+      projectId: '',
+      // optional parameters
+      relayUrl: 'wss://relay.walletconnect.com',
+      metadata: {
+        name: 'OPTN Wallet',
+        description: 'OPTN Wallet',
+        url: 'https://',
+        icons: ['https://.png']
+      }
+    });
+  } 
+
+  //actual connect 
+  const setupSignClient = async () => {
+    console.log('setupSignClient(): starting');
+    // Setup walletconnect client
+    if (walletConnectInstance == null) {
+      const client = await signClient();  //call connection with above settings, wait for instance response
+      if (client != null) {
+
+        // Set listeners on client then save client to state
+        console.log('setupSignClient(): walletConnectInstance detected, adding listeners...')
+        // Attach event listeners to client instance
+        client.on('session_event', ( event ) => {
+          console.log('session_event');
+          console.log(event);
+        });
+        console.log('session_event added...');
+
+        client.on('session_update', ({ topic, params }) => {
+          console.log('session_update');
+          console.log(params);
+        });
+        console.log('session_update added...');
+
+        client.on('session_delete', () => {
+          console.log('Deleting session with topic ' + walletConnectSession.topic);
+          client.session.delete(
+            walletConnectSession.topic,
+            {
+              code: 6000,
+              message: "User Disconnected",
+            })
+            setUsersAddress('');
+            //setBlockchainData({ usersAddress: '' });
+        });
+        console.log('session_delete added...');
+
+        //setInstance(client);
+        //setupSession(client);
+        setWalletConnectInstance(client);
+        //setBlockchainData({ instance: client });
+
+       //check if session exists in localstorage to use
+       console.log('setupSession(): checking for existing walletconnect session...')
+       const lastKeyIndex = client.session.getAll().length - 1;
+       const lastSession = client.session.getAll()[lastKeyIndex];
+
+       if (lastSession) {
+         console.log('setupSession(): session found in localstorage: ');
+         console.log(lastSession);
+         //setSession(lastSession);
+
+         //set users saved address
+         const existingSessionAddress = lastSession.namespaces['bch'].accounts[0].slice(4);
+         console.log(existingSessionAddress);
+         setUsersAddress(existingSessionAddress);
+         //setBlockchainData({ session: lastSession, usersAddress: existingSessionAddress });
+       }
+
+    } 
+  }
+}
+//////////////////////////////////////////////////
+////////// User-triggered blockchain connect request
+//////////////////////////////////////////////////
+// Setup Session saved from localstorage
+const manualSetupSignClient = async () => {
+  console.log('manualSetupSignClient(): starting');
+
+  // Setup walletconnect client
+  let client: SignClient;
+  if (walletConnectInstance == null) {
+    console.log('manualSetupSignClient(): walletConnectInstance not detected, creating new instance...');
+    client = await signClient();  //call connection with above settings, wait for instance response
+    if (client != null) {
+
+      // Set listeners on client then save client to state
+      console.log('manualSetupSignClient(): walletConnectInstance detected, adding listeners...')
+      // Attach event listeners to client instance
+      client.on('session_event', ( event ) => {
+        console.log('session_event');
+        console.log(event);
+      });
+      console.log('session_event added...');
+
+      client.on('session_update', ({ topic, params }) => {
+        console.log('session_update');
+        console.log(params);
+      });
+      console.log('session_update added...');
+
+      client.on('session_delete', () => {
+        console.log('Deleting session with topic ' + walletConnectSession.topic);
+        client.session.delete(
+          walletConnectSession.topic,
+          {
+            code: 6000,
+            message: "User Disconnected",
+          })
+      });
+      console.log('session_delete added...');
+      setWalletConnectInstance(client);
+      //setBlockchainData({ instance: client });
+    } 
+  }
+
+  //load saved session or start a new one
+  console.log('manualSetupSignClient(): checking for existing walletconnect session...');
+  console.log(walletConnectInstance);
+  const lastKeyIndex = walletConnectInstance.session.getAll().length - 1;
+  const lastSession = walletConnectInstance.session.getAll()[lastKeyIndex];
+
+  if (lastSession) {
+    console.log('manualSetupSignClient(): session found in localstorage');
+    setWalletConnectSession(lastSession);
+    //setBlockchainData({ session: lastSession });
+
+    //set users saved address
+    const existingSessionAddress = lastSession.namespaces['bch'].accounts[0].slice(4);
+    console.log(existingSessionAddress);
+    setUsersAddress(existingSessionAddress);
+    //setBlockchainData({ usersAddress: existingSessionAddress });
+
+  //otherwise launch QR to start a new session
+  } else {
+    console.log('manualSetupSignClient(): no existing walletconnect session found, making a new one...');
+    const { uri, approval } = await walletConnectInstance.connect({ requiredNamespaces });
+    console.log('manualSetupSignClient(): uri received:');
+    console.log(uri);
+  
+    // Open login window
+    await walletConnectModal.openModal({ uri });
+  
+    // Await session approval from the wallet.
+    console.log('manualSetupSignClient(): waiting for approval');
+    const session = await approval();
+    setWalletConnectSession(session);
+    //setBlockchainData({ session: session });
+    console.log('manualSetupSignClient(): WC connected! Session:');
+    console.log(session);
+    const existingSessionAddress = session.namespaces['bch'].accounts[0].slice(4);
+    setUsersAddress(existingSessionAddress);
+    //setBlockchainData({ usersAddress: existingSessionAddress });
+
+    // Close the QRCode modal in case it was open.
+    walletConnectModal.closeModal();
+  }
+}
+
+const handleDisconnectWC = () => {
+  console.log('handleDisconnectWC() started');
+  try {
+    if (walletConnectInstance && walletConnectSession) {
+      walletConnectInstance?.disconnect({
+        topic: walletConnectSession.topic,
+        reason: {
+          code: 6000,
+          message: "User Disconnected",
+        }
+      });
+  /*
+      walletConnectInstance?.session.delete(
+        walletConnectSession.topic,
+        {
+          code: 6000,
+          message: "User Disconnected",
+        });
+  */
+  console.log('attempting to delete item. localStorage length: ');
+  console.log(localStorage.length);
+  localStorage.clear();
+  console.log(localStorage.length);
+
+  console.log(localStorage.getItem(walletConnectSession.topic));
+
+      localStorage.removeItem(walletConnectSession.topic);
+      console.log('removing usersAddress');
+      setUsersAddress('');
+      //setBlockchainData({ usersAddress: '' });
+      console.log('Wallet Disconnected');
+    }
+
+    let lastKeyIndex: number;
+    let lastSession: any;
+
+    if (walletConnectInstance) {
+      console.log('walletConnectInstance exists')
+      lastKeyIndex = walletConnectInstance.session.getAll().length - 1;
+      lastSession = walletConnectInstance.session.getAll()[lastKeyIndex];
+    } else if (walletConnectInstance) {
+      console.log('instance exists')
+      lastKeyIndex = walletConnectInstance.session.getAll().length - 1;
+      lastSession = walletConnectInstance.session.getAll()[lastKeyIndex];
+    }
+
+    if (lastSession) {
+      console.log('detected lastSession, deleting...')
+      console.log('lastSession: ');
+      console.log(lastSession);
+      localStorage.removeItem(lastSession);
+    }
+
+  } catch (error) {
+    console.log('Error disconnecting:', error);
+  }
+}
+
+//////////////////////////////////////////////////
+////////// Initialize Electrum, WalletConnect, userAddress
+//////////////////////////////////////////////////
+const initBlockchain = async () => {
+  try {
+    if (!walletConnectInstance) {
+      console.log('initBlockchain(): 1. walletconnect NOT detected, do setupSignClient()');
+      try {
+        await setupSignClient();
+      } catch (error) {
+        console.error('initBlockchain(): Error setting up wallet connect:', error);
+      }
+    }
+  } catch (error) {
+    console.error('initBlockchain(): Error in blockchain initialization:', error);
+  }
+}
+//////////////////////////////////////////////////
 ////////// UseEffect: Fetch campaigns on page load
 //////////////////////////////////////////////////
 useEffect(() => {
     setIsLoading(true);  //starts loading spinner graphic
     
     async function getCampaigns() {
-      if (!ElectrumService) return;
+      if (!electrumServer) return;
 
       //delay to allow electrum to stabilize
       setTimeout(async () => {
@@ -69,14 +381,22 @@ useEffect(() => {
         const fetchedCampaigns = await axios.get('https://fundme.cash/get-campaignlist');
         let campaignList = fetchedCampaigns.data;
 
-        const cashStarterUTXOs: Utxo[] = await ElectrumService.getUtxos(AddressCashStarter);
-        //console.log(cashStarterUTXOs);
-        console.log('[CashStarter] ' + cashStarterUTXOs.length + ' UTXOs');
-        const filteredUTXOs = cashStarterUTXOs.filter( 
+        //const cashStarterUTXOs: Utxo[] = await electrumServer.getUtxos(AddressCashStarter);
+        //const cashStarterUTXOs: Utxo[] = await electrumServer.request('blockchain.address.listunspent', AddressCashStarter);
+        const rawUTXOs = await electrumServer.request('blockchain.address.listunspent', AddressCashStarter) as any[];
+        const transformedUTXOs = rawUTXOs.map(utxo => ({
+          ...utxo,
+          token: utxo.token_data
+        }));
+        console.log('[CashStarter] ' + transformedUTXOs.length + ' UTXOs');
+        console.log('transformedUTXOs: ', transformedUTXOs);
+
+        const filteredUTXOs = transformedUTXOs.filter( 
           utxo => utxo.token?.category == MasterCategoryID                  //only CashStarter NFT's
-            && utxo.token?.nft?.capability == 'minting'                     //only minting ones
+            && utxo.token?.nft?.capability == 'minting'                      //only minting ones
             && utxo.token.nft?.commitment.substring(70, 80) != 'ffffffffff' //not the masterNFT
         );
+
         console.log('[CashStarter] ' + filteredUTXOs.length + ' active campaigns');
         setCampaigns(filteredUTXOs);  //save active campaigns
 
@@ -86,7 +406,7 @@ useEffect(() => {
           setIsEmpty(true);
         }
 
-        const expiredUTXOs = cashStarterUTXOs.filter(utxo => 
+        const expiredUTXOs = transformedUTXOs.filter(utxo => 
           utxo.token?.category === MasterCategoryID                       // only CashStarter NFT's
           && utxo.token?.nft?.capability === 'mutable'                    // expired ones
           && utxo.token.nft?.commitment.substring(70, 80) != 'ffffffffff' //not the masterNFT
@@ -111,7 +431,7 @@ useEffect(() => {
 
           //fetch campaign metadata from server
           try {
-            const response = await axios.get(environmentUrl + '/get-shortcampaign/' + campaignId);
+            const response = await axios.get('https://fundme.cash/get-shortcampaign/' + campaignId);
             const campaignInfo = response.data;
 
             const newCampaign = {
@@ -154,7 +474,7 @@ useEffect(() => {
 
           //fetch campaign metadata from server
           try {
-            const response = await axios.get(environmentUrl + '/get-shortcampaign/' + campaignId);
+            const response = await axios.get('https://fundme.cash/get-shortcampaign/' + campaignId);
             const campaignInfo = response.data;
 
             const expiredCampaign = {
@@ -187,7 +507,7 @@ useEffect(() => {
         for (const campaign of campaignList) {                       //Iterate over campaignList to populate the map
           //fetch campaign metadata from server
           try {
-            const response = await axios.get(environmentUrl + '/get-shortcampaign/' + campaign);
+            const response = await axios.get('https://fundme.cash/get-shortcampaign/' + campaign);
             const campaignInfo = response.data;
 
             const archivedCampaign = {
@@ -221,7 +541,7 @@ useEffect(() => {
   }
     getCampaigns();
 
-  }, [ElectrumService]);
+  }, []);
 
   const actions = [
     {
@@ -263,6 +583,34 @@ useEffect(() => {
     }
   };
 
+  async function formatTime(blocks: number): Promise<string> {
+    //const blockHeight = await electrumServer.getBlockHeight();
+    const blockHeight = 900000;
+    const blocksRemaining = Math.max(blocks - blockHeight, 0);
+
+    if (blocksRemaining == 0) {
+      return 'Expired';
+    }
+
+    const totalMinutes = blocksRemaining * 10;
+    const totalHours = totalMinutes / 60;
+    const remainingHours = totalHours % 24;
+    const days = Math.floor(totalHours / 24);
+    const hours = Math.floor(totalHours % 24);
+    const minutes = Math.floor((remainingHours - hours) * 60);
+
+    let endDate = '';
+    if (days > 0) {
+      endDate += `${days}d `;
+    }
+    if (hours > 0 || days > 0) { // Include hours if there are any days
+      endDate += `${hours}h `;
+    }
+    endDate += `${minutes}m`;
+
+    return endDate;
+  }
+
   return (
     <div className="container mx-auto p-4">
         {/* Welcome Image */}
@@ -273,6 +621,13 @@ useEffect(() => {
             className="max-w-full h-auto"
           />
         </div>
+
+        {/* Connect Button */}
+        {usersAddress ? (
+                <>Connected: {usersAddress}</>
+              ) : (
+                <button onClick={manualSetupSignClient}>Connect</button>
+            )}
 
         {/* Logo */}
         <div className="flex justify-center mt-4">
@@ -331,6 +686,87 @@ useEffect(() => {
           </div>
         ))}
       </div>
+
+{/* Fundme Campaigns */}
+<div className="flex gap-4 mb-6">
+  <button 
+    onClick={() => setCampaignType('active')} 
+    className={`px-4 py-2 rounded-lg ${campaignType === 'active' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'}`}
+  >
+    Active
+  </button>
+  <button 
+    onClick={() => setCampaignType('stopped')} 
+    className={`px-4 py-2 rounded-lg ${campaignType === 'stopped' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'}`}
+  >
+    Stopped
+  </button>
+  <button 
+    onClick={() => setCampaignType('archived')} 
+    className={`px-4 py-2 rounded-lg ${campaignType === 'archived' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'}`}
+  >
+    Archived
+  </button>
+</div>
+
+{isEmpty && campaignType === 'active' && (
+  <h2 className="text-xl font-semibold text-gray-700 mb-4">No campaigns currently active.</h2>
+)}
+
+{campaignType === 'active' && (
+  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    {[...campaignsMap.values()].map((campaign) => (
+      campaign && (
+        <div key={campaign.txid} className="bg-white rounded-lg shadow-lg overflow-hidden">
+          <div 
+            className="h-48 bg-cover bg-center" 
+            style={{ backgroundImage: `url(${campaign.banner})` }}
+          />
+          <button 
+            disabled={campaign.shortDescription === 'Campaign pending listing approval'}
+            onClick={() => handleDetailsClick(hexToDecimal(campaign.token?.nft?.commitment.substring(70,80) ?? "0"))}
+            className="w-full py-2 bg-blue-500 text-white disabled:bg-gray-300 disabled:cursor-not-allowed"
+          >
+            Details
+          </button>
+          <div className="p-4">
+            <div className="relative h-6 bg-gray-200 rounded-full mb-2">
+              <div 
+                className="absolute left-0 top-0 h-full bg-blue-500 rounded-full"
+                style={{ width: `${(Number(campaign.value) / hexToDecimal(campaign.token?.nft?.commitment.substring(0, 12) ?? "0")) * 100}%` }}
+              />
+              <div className="absolute w-full text-center text-sm">
+                {((Number(campaign.value) / hexToDecimal(campaign.token?.nft?.commitment.substring(0, 12) ?? "0")) * 100).toFixed(2)}%
+              </div>
+              <div className="absolute w-full text-center text-xs mt-6">
+                {(Number(campaign.value) / 100000000)} / {(hexToDecimal(campaign.token?.nft?.commitment.substring(0, 12) ?? "0") / 100000000)}
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="font-semibold text-lg">{campaign.name}</h3>
+              <p className="text-sm text-gray-600">Ends: <span className="font-medium">{campaign.endDate}</span></p>
+            </div>
+
+            <p className="text-gray-600 mb-4">{campaign.shortDescription}</p>
+
+            <div className="flex justify-between items-center text-sm text-gray-500">
+              <span>Campaign #{hexToDecimal(campaign.token?.nft?.commitment.substring(70,80) ?? "0")}</span>
+              <span>By: {campaign.owner}</span>
+            </div>
+          </div>
+        </div>
+      )
+    ))}
+    {isLoading && (
+      <div className="flex justify-center items-center">
+        {/* Replace StyledSpinner with appropriate spinner component */}
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500" />
+      </div>
+    )}
+  </div>
+)}
+
 
       {/* Action Modal */}
       {isActionModalOpen && selectedAction && (
