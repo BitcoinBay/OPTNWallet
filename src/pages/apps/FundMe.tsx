@@ -98,7 +98,9 @@ const FundMeApp = () => {
 
       } catch (error) {
         console.error('Error fetching stats:', error);
-        //toast.info(`Error fetching stats:\n${error}`);
+        Toast.show({
+          text: `Error fetching stats:\n${error}`,
+        });
       }
     }
     fetchStats();
@@ -611,6 +613,11 @@ useEffect(() => {
     return endDate;
   }
 
+  //click Details to open campaign details page
+  const handleDetailsClick = (id: number) => {
+    navigate(`/campaign/${id}`);
+  };
+
   return (
     <div className="container mx-auto p-4">
         {/* Welcome Image */}
@@ -640,28 +647,28 @@ useEffect(() => {
 
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <div className="p-4 bg-white rounded-lg shadow">
-            <div className="text-sm text-gray-600">Past Campaigns</div>
-            <div className="text-xl font-semibold mt-1">{totalCampaigns}</div>
-        </div>
-        
-        <div className="p-4 bg-white rounded-lg shadow">
-            <div className="text-sm text-gray-600">Active Campaigns</div>
-            <div className="text-xl font-semibold mt-1">{campaigns.length}</div>
-        </div>
-        
-        <div className="p-4 bg-white rounded-lg shadow">
-            <div className="text-sm text-gray-600">Total Raised</div>
-            <div className="flex items-center mt-1">
-            <img src="/assets/images/bch-logo.png" alt="BCH" className="w-5 h-5 mr-2" />
-            <span className="text-xl font-semibold">{totalBCHRaised.toFixed(2)}</span>
-            </div>
-        </div>
-        
-        <div className="p-4 bg-white rounded-lg shadow">
-            <div className="text-sm text-gray-600">Total Pledges</div>
-            <div className="text-xl font-semibold mt-1">{totalPledges}</div>
-        </div>
+          <div className="p-4 bg-white rounded-lg shadow">
+              <div className="text-sm text-gray-600">Past Campaigns</div>
+              <div className="text-xl font-semibold mt-1">{totalCampaigns}</div>
+          </div>
+          
+          <div className="p-4 bg-white rounded-lg shadow">
+              <div className="text-sm text-gray-600">Active Campaigns</div>
+              <div className="text-xl font-semibold mt-1">{campaigns.length}</div>
+          </div>
+          
+          <div className="p-4 bg-white rounded-lg shadow">
+              <div className="text-sm text-gray-600">Total Raised</div>
+              <div className="flex items-center mt-1">
+              <img src="/assets/images/bch-logo.png" alt="BCH" className="w-5 h-5 mr-2" />
+              <span className="text-xl font-semibold">{totalBCHRaised.toFixed(2)}</span>
+              </div>
+          </div>
+          
+          <div className="p-4 bg-white rounded-lg shadow">
+              <div className="text-sm text-gray-600">Total Pledges</div>
+              <div className="text-xl font-semibold mt-1">{totalPledges}</div>
+          </div>
         </div>
 
       <div className="flex justify-between items-center mb-6">
@@ -687,85 +694,88 @@ useEffect(() => {
         ))}
       </div>
 
-{/* Fundme Campaigns */}
-<div className="flex gap-4 mb-6">
-  <button 
-    onClick={() => setCampaignType('active')} 
-    className={`px-4 py-2 rounded-lg ${campaignType === 'active' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'}`}
-  >
-    Active
-  </button>
-  <button 
-    onClick={() => setCampaignType('stopped')} 
-    className={`px-4 py-2 rounded-lg ${campaignType === 'stopped' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'}`}
-  >
-    Stopped
-  </button>
-  <button 
-    onClick={() => setCampaignType('archived')} 
-    className={`px-4 py-2 rounded-lg ${campaignType === 'archived' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'}`}
-  >
-    Archived
-  </button>
-</div>
-
-{isEmpty && campaignType === 'active' && (
-  <h2 className="text-xl font-semibold text-gray-700 mb-4">No campaigns currently active.</h2>
-)}
-
-{campaignType === 'active' && (
-  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-    {[...campaignsMap.values()].map((campaign) => (
-      campaign && (
-        <div key={campaign.txid} className="bg-white rounded-lg shadow-lg overflow-hidden">
-          <div 
-            className="h-48 bg-cover bg-center" 
-            style={{ backgroundImage: `url(${campaign.banner})` }}
-          />
-          <button 
-            disabled={campaign.shortDescription === 'Campaign pending listing approval'}
-            onClick={() => handleDetailsClick(hexToDecimal(campaign.token?.nft?.commitment.substring(70,80) ?? "0"))}
-            className="w-full py-2 bg-blue-500 text-white disabled:bg-gray-300 disabled:cursor-not-allowed"
-          >
-            Details
-          </button>
-          <div className="p-4">
-            <div className="relative h-6 bg-gray-200 rounded-full mb-2">
-              <div 
-                className="absolute left-0 top-0 h-full bg-blue-500 rounded-full"
-                style={{ width: `${(Number(campaign.value) / hexToDecimal(campaign.token?.nft?.commitment.substring(0, 12) ?? "0")) * 100}%` }}
-              />
-              <div className="absolute w-full text-center text-sm">
-                {((Number(campaign.value) / hexToDecimal(campaign.token?.nft?.commitment.substring(0, 12) ?? "0")) * 100).toFixed(2)}%
-              </div>
-              <div className="absolute w-full text-center text-xs mt-6">
-                {(Number(campaign.value) / 100000000)} / {(hexToDecimal(campaign.token?.nft?.commitment.substring(0, 12) ?? "0") / 100000000)}
-              </div>
-            </div>
-
-            <div className="flex justify-between items-center mb-3">
-              <h3 className="font-semibold text-lg">{campaign.name}</h3>
-              <p className="text-sm text-gray-600">Ends: <span className="font-medium">{campaign.endDate}</span></p>
-            </div>
-
-            <p className="text-gray-600 mb-4">{campaign.shortDescription}</p>
-
-            <div className="flex justify-between items-center text-sm text-gray-500">
-              <span>Campaign #{hexToDecimal(campaign.token?.nft?.commitment.substring(70,80) ?? "0")}</span>
-              <span>By: {campaign.owner}</span>
-            </div>
-          </div>
-        </div>
-      )
-    ))}
-    {isLoading && (
-      <div className="flex justify-center items-center">
-        {/* Replace StyledSpinner with appropriate spinner component */}
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500" />
+      {/* Fundme Campaigns */}
+      <div className="flex gap-4 mb-6">
+        <button 
+          onClick={() => setCampaignType('active')} 
+          className={`px-4 py-2 rounded-lg ${campaignType === 'active' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'}`}
+        >
+          Active
+        </button>
+        <button 
+          onClick={() => setCampaignType('stopped')} 
+          className={`px-4 py-2 rounded-lg ${campaignType === 'stopped' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'}`}
+        >
+          Stopped
+        </button>
+        <button 
+          onClick={() => setCampaignType('archived')} 
+          className={`px-4 py-2 rounded-lg ${campaignType === 'archived' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'}`}
+        >
+          Archived
+        </button>
       </div>
-    )}
-  </div>
-)}
+
+      {isEmpty && campaignType === 'active' && (
+        <h2 className="text-xl font-semibold text-gray-700 mb-4">No campaigns currently active.</h2>
+      )}
+
+      {campaignType === 'active' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {[...campaignsMap.values()].map((campaign) => (
+            campaign && (
+              <div 
+                key={campaign.txid} 
+                className="bg-gray-900 rounded-xl overflow-hidden border border-gray-700 shadow-[0_0_15px_rgba(0,0,0,0.2)] hover:shadow-[0_0_20px_rgba(10,193,142,0.3)] hover:border-[#0AC18E] transition-all duration-300">
+                <div 
+                  className="w-full max-w-[500px] aspect-[500/120] bg-cover bg-center mx-auto" 
+                  style={{ backgroundImage: `url(${campaign.banner})` }}
+                />
+                <button 
+                  disabled={campaign.shortDescription === 'Campaign pending listing approval'}
+                  onClick={() => handleDetailsClick(hexToDecimal(campaign.token?.nft?.commitment.substring(70,80) ?? "0"))}
+                  className="w-full py-2 bg-blue-500 text-white disabled:bg-gray-300 disabled:cursor-not-allowed"
+                >
+                  Details
+                </button>
+                <div className="p-4">
+                  <div className="relative h-6 bg-gray-200 rounded-full mb-2">
+                    <div 
+                      className="absolute left-0 top-0 h-full bg-blue-500 rounded-full"
+                      style={{ width: `${(Number(campaign.value) / hexToDecimal(campaign.token?.nft?.commitment.substring(0, 12) ?? "0")) * 100}%` }}
+                    />
+                    <div className="absolute w-full text-center text-sm">
+                      {((Number(campaign.value) / hexToDecimal(campaign.token?.nft?.commitment.substring(0, 12) ?? "0")) * 100).toFixed(2)}%
+                    </div>
+                    <div className="absolute w-full text-center text-xs mt-6">
+                      {(Number(campaign.value) / 100000000)} / {(hexToDecimal(campaign.token?.nft?.commitment.substring(0, 12) ?? "0") / 100000000)}
+                    </div>
+                  </div>
+
+                  <div className="flex justify-between items-center mb-3">
+                    <h3 className="font-semibold text-lg">{campaign.name}</h3>
+                    <p className="text-sm text-gray-600">Ends: <span className="font-medium">{campaign.endDate}</span></p>
+                  </div>
+
+                  <p className="text-gray-600 mb-4">{campaign.shortDescription}</p>
+
+                  <div className="flex justify-between items-center text-sm text-gray-500">
+                    <span>Campaign #{hexToDecimal(campaign.token?.nft?.commitment.substring(70,80) ?? "0")}</span>
+                    <span>By: {campaign.owner}</span>
+                  </div>
+                </div>
+              </div>
+            )
+          ))}
+
+          {isLoading && (
+            <div className="flex justify-center items-center">
+              {/* Replace StyledSpinner with appropriate spinner component */}
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500" />
+            </div>
+          )}
+        </div>
+      )}
 
 
       {/* Action Modal */}
