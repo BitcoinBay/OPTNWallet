@@ -1,6 +1,6 @@
 // src/App.tsx
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { useSelector } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { useEffect } from 'react';
 import Layout from './components/Layout';
 import RootHandler from './pages/RootHandler';
@@ -15,22 +15,33 @@ import LandingPage from './pages/LandingPage';
 import Receive from './pages/Receive';
 import AppsView from './pages/AppsView';
 import AppFundMe from './pages/apps/FundMe';
-import { RootState } from './redux/store';
+import { AppDispatch, RootState } from './redux/store';
 import { startUTXOWorker, stopUTXOWorker } from './workers/UTXOWorkerService';
 import {
   startTransactionWorker,
   stopTransactionWorker,
 } from './workers/TransactionWorkerService';
 import CampaignDetail from './pages/apps/utils/CampaignDetail';
+import { initWalletConnect } from './redux/walletconnectSlice';
+import { usePrices } from './hooks/usePrices';
+import { SignTransactionModal } from './components/walletconnect/SignTransactionModal';
+import { SignMessageModal } from './components/walletconnect/SignMessageModal';
 
 let utxoWorkerStarted = false;
 let transactionWorkerStarted = false;
 
 function App() {
+  usePrices();
+  const dispatch = useDispatch<AppDispatch>();
   const walletId = useSelector(
     (state: RootState) => state.wallet_id.currentWalletId
   );
   const location = useLocation();
+
+  // 1) Initialize WalletConnect once
+  useEffect(() => {
+    dispatch(initWalletConnect());
+  }, [dispatch]);
 
   useEffect(() => {
     if (walletId === 1) {
@@ -72,42 +83,48 @@ function App() {
   }, [walletId, location.pathname]);
 
   return (
-    <Routes>
-      <Route path="/" element={<RootHandler />} />
-      {walletId === 1 ? (
-        <>
-          <Route element={<Layout />}>
-            <Route path="/home/:wallet_id" element={<Home />} />
-            <Route path="/contract" element={<ContractView />} />
-            <Route path="/apps" element={<AppsView />} />
-            <Route path="/apps/fundme" element={<AppFundMe />} />
-            <Route path="/campaign/:id" element={<CampaignDetail />} />
-            <Route path="/receive" element={<Receive />} />
-            <Route path="/transaction" element={<Transaction />} />
+    <>
+      <Routes>
+        <Route path="/" element={<RootHandler />} />
+        {walletId === 1 ? (
+          <>
+            <Route element={<Layout />}>
+              <Route path="/home/:wallet_id" element={<Home />} />
+              <Route path="/contract" element={<ContractView />} />
+              <Route path="/apps" element={<AppsView />} />
+              <Route path="/apps/fundme" element={<AppFundMe />} />
+              <Route path="/campaign/:id" element={<CampaignDetail />} />
+              <Route path="/receive" element={<Receive />} />
+              <Route path="/transaction" element={<Transaction />} />
+              <Route
+                path="/transactions/:wallet_id"
+                element={<TransactionHistory />}
+              />
+              <Route path="/settings" element={<Settings />} />
+            </Route>
             <Route
-              path="/transactions/:wallet_id"
-              element={<TransactionHistory />}
+              path="/"
+              element={<Navigate to={`/home/${walletId}`} replace />}
             />
-            <Route path="/settings" element={<Settings />} />
-          </Route>
-          <Route
-            path="/"
-            element={<Navigate to={`/home/${walletId}`} replace />}
-          />
-          <Route
-            path="*"
-            element={<Navigate to={`/home/${walletId}`} replace />}
-          />
-        </>
-      ) : (
-        <>
-          <Route path="/landing" element={<LandingPage />} />
-          <Route path="/createwallet" element={<CreateWallet />} />
-          <Route path="/importwallet" element={<ImportWallet />} />
-          <Route path="*" element={<Navigate to="/landing" replace />} />
-        </>
-      )}
-    </Routes>
+            <Route
+              path="*"
+              element={<Navigate to={`/home/${walletId}`} replace />}
+            />
+          </>
+        ) : (
+          <>
+            <Route path="/landing" element={<LandingPage />} />
+            <Route path="/createwallet" element={<CreateWallet />} />
+            <Route path="/importwallet" element={<ImportWallet />} />
+            <Route path="*" element={<Navigate to="/landing" replace />} />
+          </>
+        )}
+      </Routes>
+
+      {/* 🔥 This ensures the modals is always active */}
+      <SignMessageModal />
+      <SignTransactionModal />
+    </>
   );
 }
 

@@ -9,8 +9,8 @@ import { Toast } from '@capacitor/toast';
 import {
   decodePrivateKeyWif,
   privateKeyToP2pkhCashAddress,
-} from '@bitauth/libauth-v3';
-// import RegularUTXOs from './RegularUTXOs';
+} from '@bitauth/libauth';
+// import UTXOCard from './UTXOCard';
 import { FaCamera } from 'react-icons/fa';
 import ElectrumService from '../services/ElectrumService';
 import { UTXO } from '../types/types';

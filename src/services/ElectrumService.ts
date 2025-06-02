@@ -37,8 +37,9 @@ const ElectrumService = {
       );
 
       if (isUTXOArray(UTXOs)) {
-        // Iterate over each UTXO and transform token_data (if present)
-        const mappedUTXOs = UTXOs.map(utxo => {
+        // Iterate over each UTXO and transform token (if present)
+        const mappedUTXOs = UTXOs.map((utxo) => {
+          // console.log(utxo)
           if (utxo.token_data) {
             utxo.token = utxo.token_data;
             delete utxo.token_data;

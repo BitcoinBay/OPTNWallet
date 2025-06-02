@@ -27,7 +27,6 @@ import CashStarterStopArtifact from './artifacts/CashStarter/CashStarterStop.jso
 
 export default function ContractManager() {
   const dbService = DatabaseService();
-  const state = store.getState();
 
   // Cache artifacts in memory to avoid redundant loading
   const artifactCache: { [key: string]: any } = {
@@ -170,7 +169,7 @@ export default function ContractManager() {
         height: utxo.height,
         token: utxo.token || undefined,
         prefix,
-        // **Add New Fields**
+        // **Add New Fields** - TODO : implement inpur parsing
         contractFunction: utxo.contractFunction || undefined,
         contractFunctionInputs: utxo.contractFunctionInputs
           ? JSON.stringify(utxo.contractFunctionInputs)
@@ -195,6 +194,8 @@ export default function ContractManager() {
         // Save constructor arguments to the database
         await saveConstructorArgs(contract.address, constructorArgs, balance);
       }
+
+      await dbService.saveDatabaseToFile();
 
       return {
         address: contract.address,
@@ -246,7 +247,7 @@ export default function ContractManager() {
     const statement = db.prepare(insertQuery);
     statement.run(params);
     statement.free();
-    await dbService.saveDatabaseToFile();
+    // await dbService.saveDatabaseToFile();
   }
 
   async function saveContractInstance(
@@ -301,7 +302,7 @@ export default function ContractManager() {
     const statement = db.prepare(insertQuery);
     statement.run(params);
     statement.free();
-    await dbService.saveDatabaseToFile();
+    // await dbService.saveDatabaseToFile();
 
     // **Add Logging After Saving**
     // console.log('Contract instance saved successfully.');
@@ -414,7 +415,7 @@ export default function ContractManager() {
       const statement = db.prepare(insertQuery);
       statement.run(params);
       statement.free();
-      await dbService.saveDatabaseToFile();
+      // await dbService.saveDatabaseToFile();
     } catch (error) {
       console.error('Error saving contract artifact:', error);
       throw error;
@@ -459,6 +460,8 @@ export default function ContractManager() {
   }
 
   async function updateContractUTXOs(address: string) {
+    const state = store.getState();
+
     try {
       const currentNetwork = state.network.currentNetwork;
       const prefix =
@@ -500,7 +503,10 @@ export default function ContractManager() {
       }
 
       const constructorArgs = await fetchConstructorArgs(address);
-      if (!constructorArgs || constructorArgs.length === 0) {
+      if (
+        artifact.constructorInputs > 0 &&
+        (!constructorArgs || constructorArgs.length === 0)
+      ) {
         throw new Error(
           `Constructor arguments not found for contract at address: ${address}`
         );
@@ -617,7 +623,7 @@ export default function ContractManager() {
         throw transError;
       }
 
-      await dbService.saveDatabaseToFile();
+      // await dbService.saveDatabaseToFile();
       return { added: newUTXOs.length, removed: staleUTXOs.length };
     } catch (error) {
       console.error('Error updating UTXOs and balance:', error);
@@ -631,6 +637,8 @@ export default function ContractManager() {
     contractFunction: string,
     contractFunctionInputs: { [key: string]: any }
   ) {
+    const state = store.getState();
+
     // Log the contract function inputs before processing
     // console.log('Processing UTXO for unlock function:', utxo);
     // console.log('Contract Function:', contractFunction);

@@ -1,6 +1,6 @@
 // src/pages/Transaction.tsx
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 // import { useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { UTXO } from '../types/types';
@@ -37,6 +37,7 @@ import {
   // selectNetworkType,
 } from '../redux/walletSlice';
 import SweepPaperWallet from '../components/SweepPaperWallet';
+import AvailableUTXOsDisplay from '../components/transaction/AvailableUTXOsDisplay';
 
 const Transaction: React.FC = () => {
   // Removed local walletId state
@@ -82,6 +83,7 @@ const Transaction: React.FC = () => {
   const [showRegularUTXOsPopup, setShowRegularUTXOsPopup] = useState(false);
   const [showCashTokenUTXOsPopup, setShowCashTokenUTXOsPopup] = useState(false);
   const [showContractUTXOsPopup, setShowContractUTXOsPopup] = useState(false);
+  const [showCTUTXOs, setShowCTUTXOs] = useState<boolean>(false);
   const [paperWalletUTXOs, setPaperWalletUTXOs] = useState<UTXO[]>([]);
   // const [selectedPaperWalletUTXOs, setSelectedPaperWalletUTXOs] = useState<
   //   UTXO[]
@@ -89,6 +91,11 @@ const Transaction: React.FC = () => {
   const [showPaperWalletUTXOsPopup, setShowPaperWalletUTXOsPopup] =
     useState<boolean>(false);
   const [showOutputs, setShowOutputs] = useState<boolean>(false);
+
+  const [nftCapability, setNftCapability] = useState<
+    'none' | 'mutable' | 'minting'
+  >('none');
+  const [nftCommitment, setNftCommitment] = useState<string>('');
 
   // const navigate = useNavigate();
   const dispatch: AppDispatch = useDispatch();
@@ -239,7 +246,9 @@ const Transaction: React.FC = () => {
           tokenAmount,
           selectedTokenCategory,
           selectedUtxos,
-          addresses
+          addresses,
+          nftCapability,
+          nftCommitment
         );
 
         if (newOutput) {
@@ -249,8 +258,10 @@ const Transaction: React.FC = () => {
           setTransferAmount(0);
           setTokenAmount(0);
           setSelectedTokenCategory('');
+          setNftCapability('none');
+          setNftCommitment('');
 
-          // console.log('Updated Outputs:', txOutputs);
+          console.log('Updated Outputs:', newOutput);
         }
       } catch (error: any) {
         console.error('Error adding output:', error);
@@ -294,13 +305,6 @@ const Transaction: React.FC = () => {
   };
 
   /**
-   * Navigates back to the home page.
-   */
-  // const returnHome = async () => {
-  //   navigate(`/home/${walletId}`);
-  // };
-
-  /**
    * Closes all popups and clears error messages.
    */
   const closePopups = () => {
@@ -313,6 +317,7 @@ const Transaction: React.FC = () => {
     setErrorMessage(null);
     setShowPaperWalletUTXOsPopup(false);
     setShowOutputs(false);
+    setShowCTUTXOs(false);
   };
 
   /**
@@ -372,25 +377,30 @@ const Transaction: React.FC = () => {
     setShowPopup(false);
   };
 
-  /**
-   * Filters UTXOs based on selected addresses and contract addresses.
-   */
-  const filteredContractUTXOs = contractUTXOs.filter((utxo) =>
-    selectedContractAddresses.includes(utxo.address)
+  const filteredRegularUTXOs = useMemo(
+    () =>
+      utxos.filter((u) => selectedAddresses.includes(u.address) && !u.token),
+    [utxos, selectedAddresses]
   );
 
-  const filteredRegularUTXOs = utxos.filter(
-    (utxo) => selectedAddresses.includes(utxo.address) && !utxo.token
+  const filteredCashTokenUTXOs = useMemo(
+    () =>
+      utxos.filter((u) => selectedAddresses.includes(u.address) && !!u.token),
+    [utxos, selectedAddresses]
   );
 
-  const filteredCashTokenUTXOs = utxos.filter(
-    (utxo) => selectedAddresses.includes(utxo.address) && utxo.token
+  const filteredContractUTXOs = useMemo(
+    () => contractUTXOs.filter((u) => selectedAddresses.includes(u.address)),
+    [contractUTXOs, selectedAddresses]
   );
 
-  // Calculate the total amount from selected UTXOs
-  const totalSelectedUtxoAmount = selectedUtxos.reduce(
-    (sum, utxo) => sum + BigInt(utxo.amount ? utxo.amount : utxo.value),
-    BigInt(0)
+  const totalSelectedUtxoAmount = useMemo(
+    () =>
+      selectedUtxos.reduce(
+        (sum, u) => sum + BigInt(u.amount || u.value),
+        BigInt(0)
+      ),
+    [selectedUtxos]
   );
 
   return (
@@ -425,6 +435,18 @@ const Transaction: React.FC = () => {
           {/* Sweep Paper Wallet Component */}
           <SweepPaperWallet setPaperWalletUTXOs={setPaperWalletUTXOs} />
         </div>
+
+        {/* Available UTXOs (New Component) for Cashtoken Genesis*/}
+        <AvailableUTXOsDisplay
+          utxos={utxos}
+          // contractUtxos={contractUTXOs}
+          selectedUtxos={selectedUtxos}
+          handleUtxoClick={handleUtxoClick}
+          showCTUTXOs={showCTUTXOs}
+          setShowCTUTXOs={setShowCTUTXOs}
+          currentNetwork={currentNetwork}
+          closePopups={closePopups}
+        />
 
         {/* UTXO Selection Component */}
         <UTXOSelection
@@ -475,6 +497,7 @@ const Transaction: React.FC = () => {
           tokenAmount={tokenAmount}
           setTokenAmount={setTokenAmount}
           utxos={utxos.concat(contractUTXOs)}
+          selectedUtxos={selectedUtxos}
           selectedTokenCategory={selectedTokenCategory}
           setSelectedTokenCategory={setSelectedTokenCategory}
           addOutput={handleAddOutput}
@@ -483,6 +506,10 @@ const Transaction: React.FC = () => {
           showOutputs={showOutputs}
           setShowOutputs={setShowOutputs}
           closePopups={closePopups}
+          nftCapability={nftCapability}
+          setNftCapability={setNftCapability}
+          nftCommitment={nftCommitment}
+          setNftCommitment={setNftCommitment}
         />
 
         {/* Bytecode Size Display */}

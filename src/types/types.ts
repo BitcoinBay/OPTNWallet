@@ -1,10 +1,10 @@
 // src/types/types.ts
 
 export interface Token {
-  amount: string;
+  amount: number | bigint;
   category: string;
   nft?: {
-    capability: string;
+    capability: 'none' | 'mutable' | 'minting';
     commitment: string;
   };
 }
@@ -20,7 +20,7 @@ export interface UTXO {
   value: number;
   amount?: number;
   prefix?: string; // Default to 'bchtest' for now
-  token_data?: Token | null
+  token_data?: Token | null; // only used for fetching response from electrum server
   token?: Token | null; // token can be null in some cases
   privateKey?: Uint8Array; // Optional field for private key used in P2PKH
   contractName?: string; // For contract-related UTXOs
@@ -44,14 +44,23 @@ export interface TransactionHistoryItem {
 }
 
 // Transaction Output
-export interface TransactionOutput {
-  recipientAddress: string;
-  amount: number | bigint;
-  token?: {
-    amount: number | bigint;
-    category: string;
-  };
-}
+export type TransactionOutput =
+  | {
+      // Regular transaction output variant
+      recipientAddress: string;
+      amount: number | bigint;
+      token?: Token;
+      // Explicitly disallow opReturn here
+      opReturn?: never;
+    }
+  | {
+      // OP_RETURN output variant
+      opReturn: string[];
+      // Explicitly disallow regular transaction fields
+      recipientAddress?: never;
+      amount?: never;
+      token?: never;
+    };
 
 // Electrum Request Response type (from electrum-cash library)
 export type RequestResponse =
