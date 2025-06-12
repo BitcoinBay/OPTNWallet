@@ -93,7 +93,7 @@ function App() {
               <Route path="/contract" element={<ContractView />} />
               <Route path="/apps" element={<AppsView />} />
               <Route path="/apps/fundme" element={<AppFundMe />} />
-              <Route path="/campaign/:id" element={<CampaignDetail />} />
+              <Route path="/apps/campaigndetails/:id" element={<CampaignDetail />} />
               <Route path="/receive" element={<Receive />} />
               <Route path="/transaction" element={<Transaction />} />
               <Route

@@ -3,9 +3,10 @@ import { Contract, Utxo, TransactionBuilder, ElectrumNetworkProvider, Network, U
 import { hexToBin, cashAddressToLockingBytecode, decodeTransaction, encodeCashAddress } from '@bitauth/libauth';
 import { AddressCashStarter, AddressCashStarterClaim, MasterCategoryID } from './values'
 import findUtxo from './findUtxo';
+import ElectrumService from '../../../services/ElectrumService';
 
 interface CashStarterClaimParams {
-  electrumServer: ElectrumNetworkProvider | undefined;
+  //electrumServer: ElectrumNetworkProvider | undefined;
   usersAddress: string;
   contractCashStarter: Contract | undefined;
   contractCashStarterClaim: Contract | undefined;
@@ -14,7 +15,7 @@ interface CashStarterClaimParams {
   setError: (message: string) => void;
 }
 
-async function cashstarterClaim({ electrumServer, usersAddress, contractCashStarter, contractCashStarterClaim, campaignID, signTransaction, setError }: CashStarterClaimParams): Promise<any> {
+async function cashstarterClaim({ usersAddress, contractCashStarter, contractCashStarterClaim, campaignID, signTransaction, setError }: CashStarterClaimParams): Promise<any> {
   
   function LEtoBE(hexLE: string) {
     // Convert the hex string from little-endian to big-endian
@@ -29,7 +30,7 @@ async function cashstarterClaim({ electrumServer, usersAddress, contractCashStar
     return bytes;
   }
 
-  if (electrumServer && contractCashStarter && contractCashStarterClaim) {
+  if (ElectrumService && contractCashStarter && contractCashStarterClaim) {
     console.log('cashStarter address: ', contractCashStarter.address);
     console.log('cashStarterClaim address: ', contractCashStarterClaim.address);
 
@@ -75,7 +76,7 @@ async function cashstarterClaim({ electrumServer, usersAddress, contractCashStar
 
   //users feeUTXO
     //Get all utxos on users address   
-    const userUTXOs = await electrumServer.getUtxos(usersAddress);
+    const userUTXOs = await ElectrumService.getUTXOS(usersAddress);
     console.log('users UTXOs:');
     console.log(userUTXOs);
 

@@ -3,15 +3,21 @@ import { Contract, Utxo, ElectrumNetworkProvider, SignatureTemplate } from 'cash
 import { hexToBin, cashAddressToLockingBytecode, decodeTransaction } from '@bitauth/libauth';
 import { AddressCashStarter, AddressTokensCashStarter, MasterCategoryID } from './values'
 import toTokenAddress from "./toTokenAddress"
+import ElectrumService from '../../../services/ElectrumService';
+import AddressSelection from '../../../components/transaction/AddressSelection';
+import { UTXO } from '../../../types/types';
+import TransactionBuilderHelper from '../../../apis/TransactionManager/TransactionBuilderHelper';
+import ContractManager from '../../../apis/ContractManager/ContractManager';
+import { store } from '../../../redux/store';
 
 interface CashStarterPledgeParams {
-  electrumServer: ElectrumNetworkProvider | undefined;
+  //electrumServer: ElectrumNetworkProvider | undefined;
   usersAddress: string;
+  utxos: UTXO[];
   contractCashStarter: Contract | undefined;
   campaignID: string;
   pledgeID: string;
   pledgeAmount: bigint;
-  signTransaction: (options: any) => Promise<unknown>;
   setError: (message: string) => void;
   setGotConsolidateError: React.Dispatch<React.SetStateAction<boolean>>;
 }
@@ -24,8 +30,36 @@ interface TokenDetails {
   };
 }
 
-async function cashstarterPledge({ electrumServer, usersAddress, contractCashStarter, campaignID, pledgeID, pledgeAmount, signTransaction, setError, setGotConsolidateError }: CashStarterPledgeParams) {
+async function cashstarterPledge({ usersAddress, utxos, contractCashStarter, campaignID, pledgeID, pledgeAmount, setError, setGotConsolidateError }: CashStarterPledgeParams) {
+
+  // compile contract
+  const contractManager = ContractManager();
+  const contract = await contractManager.createContract(
+    'CashStarter', // or 'CashStarterManager' depending on which contract you need
+    [], // array of constructor arguments
+    store.getState().network.currentNetwork // from your Redux store
+  );
+  console.log('contract: ', contract);
+
+//######## Select pure BCH UTXO for pledge from wallet
+  // Flatten and filter UTXOs
+  const allUtxos = Object.values(utxos).flat();
+  const suitableUtxos = allUtxos.filter(utxo => 
+    utxo.amount > Number(pledgeAmount) && 
+    utxo.token === null
+  );
   
+  if (suitableUtxos.length === 0) {
+    console.log('Error: No suitable UTXO for pledge found');
+    setError('No suitable UTXO for pledge found');
+    return;
+  }
+
+  // Select the first suitable UTXO
+  const selectedUtxo = suitableUtxos[0];
+  console.log('Selected UTXO:', selectedUtxo);
+//########
+
   function toLittleEndianHexString(number: bigint, byteCount: number) {
     let hex = number.toString(16);
     hex = hex.padStart(byteCount * 2, '0'); // Pad with zeros to ensure correct byteCount
@@ -43,7 +77,7 @@ async function cashstarterPledge({ electrumServer, usersAddress, contractCashSta
     return parseInt(bigEndianHex, 16);
   };
 
-  if (electrumServer && contractCashStarter) {
+  if (ElectrumService && contractCashStarter) {
 
     //Creating lockingBytecode for contract address
     const contractLockingBytecodeResult = cashAddressToLockingBytecode(AddressCashStarter);
@@ -51,18 +85,20 @@ async function cashstarterPledge({ electrumServer, usersAddress, contractCashSta
       throw new Error(`Failed to convert CashAddress to locking bytecode: ${contractLockingBytecodeResult}`);
     }
     //Creating lockingBytecode for usersAddress
-    const lockingBytecodeResult = cashAddressToLockingBytecode(usersAddress);
+    const lockingBytecodeResult = cashAddressToLockingBytecode(selectedUtxo.address);
     if (typeof lockingBytecodeResult === 'string') {
       throw new Error(`Failed to convert CashAddress to locking bytecode: ${lockingBytecodeResult}`);
     }
 
-    //########Get all utxos on contract      
-    const cashStarterUTXOs = await contractCashStarter.getUtxos(); 
+    //########Get all utxos on contract    
+/*
+    console.log('contractCashStarter: ', contractCashStarter);
+    const cashStarterUTXOs = await contractCashStarter.provider.getUTXOS(); 
     console.log('cashStarter utxos:');
     console.log(cashStarterUTXOs);
-
+*/
     //Find campaignNFT
-    const campaignUTXO: Utxo = cashStarterUTXOs.find(
+    const campaignUTXO: Utxo = contract.utxos.find(
       utxo => utxo.token?.category === MasterCategoryID
       && utxo.token?.nft?.commitment.substring(70,80) === campaignID,
     )!;
@@ -70,23 +106,25 @@ async function cashstarterPledge({ electrumServer, usersAddress, contractCashSta
     console.log(campaignUTXO);
     
     console.log('pledgeAmount: ', pledgeAmount);
+
+    /*
     //Get users UTXOs
-    const userUtxos = await electrumServer.getUtxos(usersAddress);
+    //const userUtxos = await ElectrumService.getUTXOS(usersAddress);
     console.log('user UTXOs:');
     console.log(userUtxos);
 
     //Find pure BCH pledge UTXO
     const userUTXO: any = userUtxos.find(
-      utxo => utxo.satoshis >= (pledgeAmount + 2000n) && !utxo.token,
+      utxo => utxo.value >= (pledgeAmount + 2000n) && !utxo.token,
     )!;
     console.log('selected pledge utxo: ');
     console.log(userUTXO);
 
     if (!userUTXO) {
       //count up all the sats in userUTXOs that do not have a token
-      const totalSats = userUtxos.reduce((sum: bigint, utxo: Utxo) => {
+      const totalSats = userUtxos.reduce((sum: bigint, utxo) => {
         if (!utxo.token) {
-          return sum + utxo.satoshis;
+          return sum + BigInt(utxo.value);
         }
         return sum;
       }, 0n);
@@ -103,7 +141,7 @@ async function cashstarterPledge({ electrumServer, usersAddress, contractCashSta
 
       return;
     }
-
+*/
     //########create campaignUTXO TokenDetails
       //Format of campaignNFT nftCommitment field:
       //     A(6b)       B(20b)      C(4b) D  E(4b) F(5b)
@@ -134,7 +172,7 @@ async function cashstarterPledge({ electrumServer, usersAddress, contractCashSta
 
     //########create refundNFT commitment
     let newPledgeCommitment: string;
-    if (campaignUTXO && userUTXO) {
+    if (campaignUTXO) {
       //Format of refundNFT nftCommitment field:
       //     A(6b)            B(29b)            C(5b) 
       //  ------|-----------------------------|-----   (40bytes)
@@ -161,15 +199,100 @@ async function cashstarterPledge({ electrumServer, usersAddress, contractCashSta
     };
 
     //######## Build Transaction
-    const userSig = new SignatureTemplate(Uint8Array.from(Array(32)));           // empty signature as placeholder for building process. walletconnect will replace sig later
-    const usersTokenAddress = toTokenAddress(usersAddress);
-    const newCampaignTotal = campaignUTXO.satoshis + (pledgeAmount);
+    //const userSig = new SignatureTemplate(Uint8Array.from(Array(32)));           // empty signature as placeholder for building process. walletconnect will replace sig later
+    console.log('selectedUtxo.address: ', selectedUtxo.address);
+    const usersTokenAddress = toTokenAddress(selectedUtxo.address);
+    const newCampaignTotal = campaignUTXO.amount + (pledgeAmount);
+
+    const outputs: TransactionOutput[] = [
+      // Output 1: Campaign NFT back to contract
+      {
+        recipientAddress: AddressTokensCashStarter,
+        amount: Number(newCampaignTotal),
+        token: {
+          amount: campaignUTXO.token?.amount!,
+          category: campaignUTXO.token?.category!,
+          nft: {
+            capability: campaignUTXO.token?.nft?.capability!,
+            commitment: newCampaignCommitment
+          }
+        }
+      },
+      // Output 2: Pledge NFT to user
+      {
+        recipientAddress: usersTokenAddress,
+        amount: 1000,
+        token: {
+          amount: 0,
+          category: campaignUTXO.token?.category!,
+          nft: {
+            capability: 'none',
+            commitment: newPledgeCommitment!
+          }
+        }
+      }
+    ];
+    
+    // Add change output if needed
+    const changeAmount = selectedUtxo.amount - Number(pledgeAmount + 2000n);
+    if (changeAmount > 546) {
+      outputs.push({
+        recipientAddress: selectedUtxo.address,
+        amount: changeAmount
+      });
+    }
 
     let transaction: any;
     try {
+      const txBuilder = TransactionBuilderHelper();
+      
+      // Ensure UTXOs have all required fields
+      const formattedCampaignUTXO = {
+        ...campaignUTXO,
+        contractFunction: contract.abi.pledge,
+        amount: campaignUTXO.amount,
+        token: campaignUTXO.token ? {
+          ...campaignUTXO.token,
+          amount: BigInt(campaignUTXO.token.amount)
+        } : undefined
+      };
+
+      const formattedSelectedUtxo = {
+        ...selectedUtxo,
+        amount: selectedUtxo.amount,
+        token: selectedUtxo.token ? {
+          ...selectedUtxo.token,
+          amount: BigInt(selectedUtxo.token.amount)
+        } : undefined
+      };
+
+      // Ensure outputs have all required fields
+      const formattedOutputs = outputs.map(output => ({
+        ...output,
+        amount: BigInt(output.amount),
+        token: output.token ? {
+          ...output.token,
+          amount: BigInt(output.token.amount)
+        } : undefined
+      }));
+
+      console.log('Formatted UTXOs:', {
+        campaignUTXO: formattedCampaignUTXO,
+        selectedUtxo: formattedSelectedUtxo
+      });
+      
+      console.log('Formatted Outputs:', formattedOutputs);
+
+      // Build the transaction
+      const transaction = await txBuilder.buildTransaction(
+        [formattedCampaignUTXO, formattedSelectedUtxo],
+        formattedOutputs
+      );
+      console.log('transaction: ', transaction);
+/*
       transaction = contractCashStarter?.functions.pledge(pledgeAmount)                      
         .from(campaignUTXO)                                                        // contractUTXO utxo
-        .fromP2PKH(userUTXO, userSig)                                              // used for privtekey signing
+        .fromP2PKH(selectedUtxo, userSig)                                              // used for privtekey signing
         .to(AddressTokensCashStarter, newCampaignTotal, campaignNFTDetails)        // send output0 back to contracts address with pledge minus miner fee
         .to(usersTokenAddress, 1000n, pledgeNFTDetails)                            // send output1 to users tokenAddress with 1000sats and NFT details
         .withoutChange()                                                           // disable automatic change output back to user (change handling below)
@@ -187,7 +310,7 @@ async function cashstarterPledge({ electrumServer, usersAddress, contractCashSta
 
         //const txid = await transaction.send();
         //console.log(txid);
-
+*/
     } catch (error) {
       if (error instanceof Error) {
         setError(`Error pledging: ${error.message}`);
@@ -201,6 +324,9 @@ async function cashstarterPledge({ electrumServer, usersAddress, contractCashSta
       
     console.log('transaction pre-build: ');
     console.log(transaction);
+    console.log('cashStarterPledge complete...')
+    //return transaction;
+/*
     try {                                                                        // build the transaction we created
       const rawTransactionHex = await transaction.build();                                  
 
@@ -250,7 +376,9 @@ async function cashstarterPledge({ electrumServer, usersAddress, contractCashSta
       console.log('Error pledging: ' + error);
       setError(`Error pledging: ${error}`);
     }
+*/
   }
+
 }
   
 export default cashstarterPledge;

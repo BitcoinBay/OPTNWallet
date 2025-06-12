@@ -8,9 +8,11 @@ import { Toast } from '@capacitor/toast';
 import axios, { AxiosError } from 'axios';
 import { Utxo } from 'cashscript';
 import ElectrumServer from '../../apis/ElectrumServer/ElectrumServer';
+import ElectrumService from '../../services/ElectrumService';
 import { AddressCashStarter, MasterCategoryID } from './utils/values';
-import SignClient from '@walletconnect/sign-client'
+//import SignClient from '@walletconnect/sign-client'
 import { WalletConnectModal } from '@walletconnect/modal';
+import BCHLogo from './utils/bch.png';
 
 interface ElectrumUtxo {
   height: number;
@@ -63,8 +65,8 @@ const FundMeApp = () => {
   const [totalCampaigns, setTotalCampaigns] = useState<number>(0);
   const [totalBCHRaised, setTotalBCHRaised] = useState<number>(0);
   const [totalPledges, setTotalPledges] = useState<number>(0);
-  const [walletConnectInstance, setWalletConnectInstance] = useState<SignClient | null>(null);
-  const [walletConnectSession, setWalletConnectSession] = useState<any>(null);
+  //const [walletConnectInstance, setWalletConnectInstance] = useState<SignClient | null>(null);
+  //const [walletConnectSession, setWalletConnectSession] = useState<any>(null);
   const [connectedChain, setConnectedChain] = useState<string | null>('bch:bchtest');
   const [usersAddress, setUsersAddress] = useState<string | null>(null);
   const [isEmpty, setIsEmpty] = useState(false);
@@ -80,10 +82,6 @@ const FundMeApp = () => {
     const bigEndianHex = hex.match(/.{2}/g)?.reverse().join('') ?? '0';
     return parseInt(bigEndianHex, 16);
   };
-
-  // Create an instance of ElectrumServer
-  const electrumServer = ElectrumServer();
-
 
   useEffect(() => {
     async function fetchStats() {
@@ -127,7 +125,7 @@ const FundMeApp = () => {
       events: ['addressesChanged'],
     },
   };  
-
+/*
 ////////////////////////////////////////////////// 
 ////////// Wallet Connect V2
 //////////////////////////////////////////////////
@@ -207,6 +205,8 @@ const FundMeApp = () => {
     } 
   }
 }
+  */
+ /*
 //////////////////////////////////////////////////
 ////////// User-triggered blockchain connect request
 //////////////////////////////////////////////////
@@ -293,82 +293,7 @@ const manualSetupSignClient = async () => {
     walletConnectModal.closeModal();
   }
 }
-
-const handleDisconnectWC = () => {
-  console.log('handleDisconnectWC() started');
-  try {
-    if (walletConnectInstance && walletConnectSession) {
-      walletConnectInstance?.disconnect({
-        topic: walletConnectSession.topic,
-        reason: {
-          code: 6000,
-          message: "User Disconnected",
-        }
-      });
-  /*
-      walletConnectInstance?.session.delete(
-        walletConnectSession.topic,
-        {
-          code: 6000,
-          message: "User Disconnected",
-        });
-  */
-  console.log('attempting to delete item. localStorage length: ');
-  console.log(localStorage.length);
-  localStorage.clear();
-  console.log(localStorage.length);
-
-  console.log(localStorage.getItem(walletConnectSession.topic));
-
-      localStorage.removeItem(walletConnectSession.topic);
-      console.log('removing usersAddress');
-      setUsersAddress('');
-      //setBlockchainData({ usersAddress: '' });
-      console.log('Wallet Disconnected');
-    }
-
-    let lastKeyIndex: number;
-    let lastSession: any;
-
-    if (walletConnectInstance) {
-      console.log('walletConnectInstance exists')
-      lastKeyIndex = walletConnectInstance.session.getAll().length - 1;
-      lastSession = walletConnectInstance.session.getAll()[lastKeyIndex];
-    } else if (walletConnectInstance) {
-      console.log('instance exists')
-      lastKeyIndex = walletConnectInstance.session.getAll().length - 1;
-      lastSession = walletConnectInstance.session.getAll()[lastKeyIndex];
-    }
-
-    if (lastSession) {
-      console.log('detected lastSession, deleting...')
-      console.log('lastSession: ');
-      console.log(lastSession);
-      localStorage.removeItem(lastSession);
-    }
-
-  } catch (error) {
-    console.log('Error disconnecting:', error);
-  }
-}
-
-//////////////////////////////////////////////////
-////////// Initialize Electrum, WalletConnect, userAddress
-//////////////////////////////////////////////////
-const initBlockchain = async () => {
-  try {
-    if (!walletConnectInstance) {
-      console.log('initBlockchain(): 1. walletconnect NOT detected, do setupSignClient()');
-      try {
-        await setupSignClient();
-      } catch (error) {
-        console.error('initBlockchain(): Error setting up wallet connect:', error);
-      }
-    }
-  } catch (error) {
-    console.error('initBlockchain(): Error in blockchain initialization:', error);
-  }
-}
+*/
 //////////////////////////////////////////////////
 ////////// UseEffect: Fetch campaigns on page load
 //////////////////////////////////////////////////
@@ -376,7 +301,7 @@ useEffect(() => {
     setIsLoading(true);  //starts loading spinner graphic
     
     async function getCampaigns() {
-      if (!electrumServer) return;
+      if (!ElectrumService) return;
 
       //delay to allow electrum to stabilize
       setTimeout(async () => {
@@ -386,15 +311,17 @@ useEffect(() => {
 
         //const cashStarterUTXOs: Utxo[] = await electrumServer.getUtxos(AddressCashStarter);
         //const cashStarterUTXOs: Utxo[] = await electrumServer.request('blockchain.address.listunspent', AddressCashStarter);
-        const rawUTXOs = await electrumServer.request('blockchain.address.listunspent', AddressCashStarter) as any[];
-        const transformedUTXOs = rawUTXOs.map(utxo => ({
-          ...utxo,
-          token: utxo.token_data
-        }));
-        console.log('[CashStarter] ' + transformedUTXOs.length + ' UTXOs');
-        console.log('transformedUTXOs: ', transformedUTXOs);
+        //const rawUTXOs = await electrumServer.request('blockchain.address.listunspent', AddressCashStarter) as any[];
+        const rawUTXOs = await ElectrumService.getUTXOS(AddressCashStarter);
 
-        const filteredUTXOs = transformedUTXOs.filter( 
+        //const transformedUTXOs = rawUTXOs.map(utxo => ({
+          //...utxo,
+          //token: utxo.token_data
+        //}));
+        console.log('[CashStarter] ' + rawUTXOs.length + ' UTXOs');
+        console.log('rawUTXOs: ', rawUTXOs);
+
+        const filteredUTXOs = rawUTXOs.filter( 
           utxo => utxo.token?.category == MasterCategoryID                  //only CashStarter NFT's
             && utxo.token?.nft?.capability == 'minting'                      //only minting ones
             && utxo.token.nft?.commitment.substring(70, 80) != 'ffffffffff' //not the masterNFT
@@ -409,7 +336,7 @@ useEffect(() => {
           setIsEmpty(true);
         }
 
-        const expiredUTXOs = transformedUTXOs.filter(utxo => 
+        const expiredUTXOs = rawUTXOs.filter(utxo => 
           utxo.token?.category === MasterCategoryID                       // only CashStarter NFT's
           && utxo.token?.nft?.capability === 'mutable'                    // expired ones
           && utxo.token.nft?.commitment.substring(70, 80) != 'ffffffffff' //not the masterNFT
@@ -619,176 +546,165 @@ useEffect(() => {
     navigate(`/campaign/${id}`);
   };
 
+  const getTitleClass = (title: string) => {
+    const baseClass = "font-semibold text-gray-900 mb-1";
+    if (title.length > 48) {
+      return `${baseClass} text-sm`;
+    }
+    return `${baseClass} text-base`;
+  };
+
   return (
-    <div className="container mx-auto p-4">
-        {/* Welcome Image */}
-        <div className="flex justify-center mt-4">
-          <img
-            src="/assets/images/OPTNWelcome1.png"
-            alt="Welcome"
-            className="max-w-full h-auto"
-          />
-        </div>
-
-        {/* Connect Button */}
-        {usersAddress ? (
-                <>Connected: {usersAddress}</>
-              ) : (
-                <button onClick={manualSetupSignClient}>Connect</button>
-            )}
-
-        {/* Logo */}
-        <div className="flex justify-center mt-4">
-          <img
-            src="/assets/images/fundme.png"
-            alt="Welcome"
-            className="max-w-full h-auto"
-          />
-        </div>
-
-        {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div className="p-4 bg-white rounded-lg shadow">
-              <div className="text-sm text-gray-600">Past Campaigns</div>
-              <div className="text-xl font-semibold mt-1">{totalCampaigns}</div>
-          </div>
-          
-          <div className="p-4 bg-white rounded-lg shadow">
-              <div className="text-sm text-gray-600">Active Campaigns</div>
-              <div className="text-xl font-semibold mt-1">{campaigns.length}</div>
-          </div>
-          
-          <div className="p-4 bg-white rounded-lg shadow">
-              <div className="text-sm text-gray-600">Total Raised</div>
-              <div className="flex items-center mt-1">
-              <img src="/assets/images/bch-logo.png" alt="BCH" className="w-5 h-5 mr-2" />
-              <span className="text-xl font-semibold">{totalBCHRaised.toFixed(2)}</span>
-              </div>
-          </div>
-          
-          <div className="p-4 bg-white rounded-lg shadow">
-              <div className="text-sm text-gray-600">Total Pledges</div>
-              <div className="text-xl font-semibold mt-1">{totalPledges}</div>
-          </div>
-        </div>
-
-      <div className="flex justify-between items-center mb-6">
-      <h1 className="text-2xl font-bold">FundMe</h1>
-        <button
-          onClick={() => navigate('/apps')}
-          className="bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded"
-        >
-          Back to Apps
-        </button>
+    <div className="min-h-screen w-full bg-white">
+      {/* Welcome Image */}
+      <div className="flex justify-center mt-4">
+        <img
+          src="/assets/images/OPTNWelcome1.png"
+          alt="Welcome"
+          className="max-w-full h-auto"
+        />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {actions.map((action) => (
-          <div
-            key={action.id}
-            onClick={() => handleActionClick(action)}
-            className="p-4 border rounded-lg hover:bg-gray-50 cursor-pointer"
+      <div className="max-w-6xl mx-auto p-4">
+        {/* Back Button */}
+        <div className="flex justify-between items-center mb-6">
+          <button
+            onClick={() => navigate('/apps')}
+            className="bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded z-20"
           >
-            <h3 className="font-semibold">{action.name}</h3>
-            <p className="text-sm text-gray-600">{action.description}</p>
+            Back to Apps
+          </button>
+        </div>
+
+        {/* Stats Section */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600">Total Campaigns</p>
+                <p className="text-2xl font-bold text-gray-900">{totalCampaigns}</p>
+              </div>
+              <div className="h-12 w-12 bg-blue-100 rounded-full flex items-center justify-center">
+                <svg className="h-6 w-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+              </div>
+            </div>
           </div>
-        ))}
-      </div>
 
-      {/* Fundme Campaigns */}
-      <div className="flex gap-4 mb-6">
-        <button 
-          onClick={() => setCampaignType('active')} 
-          className={`px-4 py-2 rounded-lg ${campaignType === 'active' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'}`}
-        >
-          Active
-        </button>
-        <button 
-          onClick={() => setCampaignType('stopped')} 
-          className={`px-4 py-2 rounded-lg ${campaignType === 'stopped' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'}`}
-        >
-          Stopped
-        </button>
-        <button 
-          onClick={() => setCampaignType('archived')} 
-          className={`px-4 py-2 rounded-lg ${campaignType === 'archived' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'}`}
-        >
-          Archived
-        </button>
-      </div>
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600">Total BCH Raised</p>
+                <p className="text-2xl font-bold text-gray-900">{(Number(totalBCHRaised)).toFixed(2)}</p>
+              </div>
+              <div className="h-12 w-12 bg-green-100 rounded-full flex items-center justify-center">
+                <img src={BCHLogo} alt="BCH" className="h-6 w-6" />
+              </div>
+            </div>
+          </div>
 
-      {isEmpty && campaignType === 'active' && (
-        <h2 className="text-xl font-semibold text-gray-700 mb-4">No campaigns currently active.</h2>
-      )}
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600">Active Campaigns</p>
+                <p className="text-2xl font-bold text-gray-900">{campaigns.length}</p>
+              </div>
+              <div className="h-12 w-12 bg-yellow-100 rounded-full flex items-center justify-center">
+                <svg className="h-6 w-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+            </div>
+          </div>
+        </div>
 
-      {campaignType === 'active' && (
+        {/* Campaign Type Tabs */}
+        <div className="flex space-x-4 mb-6">
+          {['Active', 'Stopped', 'Archived'].map((type) => (
+            <button
+              key={type}
+              onClick={() => setCampaignType(type)}
+              className={`px-4 py-2 rounded-lg ${
+                campaignType === type
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {type}
+            </button>
+          ))}
+        </div>
+
+        {/* Campaigns Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {[...campaignsMap.values()].map((campaign) => (
-            campaign && (
-              <div 
-                key={campaign.txid} 
-                className="bg-gray-900 rounded-xl overflow-hidden border border-gray-700 shadow-[0_0_15px_rgba(0,0,0,0.2)] hover:shadow-[0_0_20px_rgba(10,193,142,0.3)] hover:border-[#0AC18E] transition-all duration-300">
-                <div 
-                  className="w-full max-w-[500px] aspect-[500/120] bg-cover bg-center mx-auto" 
-                  style={{ backgroundImage: `url(${campaign.banner})` }}
+          {campaigns.map((campaign) => (
+            <div key={campaign.id} className="bg-white rounded-lg shadow overflow-hidden">
+              <div className="relative" style={{ aspectRatio: '500/120' }}>
+                <img
+                  src={campaignsMap.get(hexToDecimal(campaign.token?.nft?.commitment.substring(70,80) ?? "0") as number)?.banner}
+                  alt={campaign.name}
+                  className="w-full h-full object-cover"
                 />
-                <button 
-                  disabled={campaign.shortDescription === 'Campaign pending listing approval'}
-                  onClick={() => handleDetailsClick(hexToDecimal(campaign.token?.nft?.commitment.substring(70,80) ?? "0"))}
-                  className="w-full py-2 bg-blue-500 text-white disabled:bg-gray-300 disabled:cursor-not-allowed"
-                >
-                  Details
-                </button>
-                <div className="p-4">
-                  <div className="relative h-6 bg-gray-200 rounded-full mb-2">
+              </div>
+              <button
+                onClick={() => navigate(`/apps/campaigndetails/${hexToDecimal(campaign.token?.nft?.commitment.substring(70,80) ?? "0")}`)}
+                className="w-full px-3 py-1.5 bg-gradient-to-b from-lime-500 to-teal-500 text-white hover:from-lime-600 hover:to-teal-600 transition-colors duration-200"
+              >
+                Details
+              </button>
+              <div className="px-4 pt-2 pb-4 flex flex-col h-[210px]">
+                <h3 className={getTitleClass(campaignsMap.get(hexToDecimal(campaign.token?.nft?.commitment.substring(70,80) ?? "0") as number)?.name ?? "")}>
+                  {campaignsMap.get(hexToDecimal(campaign.token?.nft?.commitment.substring(70,80) ?? "0") as number)?.name}
+                </h3>
+                <p className="text-gray-600 text-sm mb-3 line-clamp-4">{campaignsMap.get(hexToDecimal(campaign.token?.nft?.commitment.substring(70,80) ?? "0") as number)?.shortDescription}</p>
+                <div className="mt-auto">
+                  <div className="flex items-center justify-center mb-3">
+                    <div className="text-gray-600 text-sm">
+                      Ends: {campaignsMap.get(hexToDecimal(campaign.token?.nft?.commitment.substring(70,80) ?? "0") as number)?.endDate}
+                    </div>
+                  </div>
+                  <div className="relative h-2 bg-gray-200 rounded-full mb-2">
                     <div 
-                      className="absolute left-0 top-0 h-full bg-blue-500 rounded-full"
+                      className="absolute left-0 top-0 h-full bg-gradient-to-r from-teal-500 to-lime-500 rounded-full"
                       style={{ width: `${(Number(campaign.value) / hexToDecimal(campaign.token?.nft?.commitment.substring(0, 12) ?? "0")) * 100}%` }}
                     />
-                    <div className="absolute w-full text-center text-sm">
-                      {((Number(campaign.value) / hexToDecimal(campaign.token?.nft?.commitment.substring(0, 12) ?? "0")) * 100).toFixed(2)}%
-                    </div>
-                    <div className="absolute w-full text-center text-xs mt-6">
-                      {(Number(campaign.value) / 100000000)} / {(hexToDecimal(campaign.token?.nft?.commitment.substring(0, 12) ?? "0") / 100000000)}
-                    </div>
                   </div>
-
-                  <div className="flex justify-between items-center mb-3">
-                    <h3 className="font-semibold text-lg">{campaign.name}</h3>
-                    <p className="text-sm text-gray-600">Ends: <span className="font-medium">{campaign.endDate}</span></p>
-                  </div>
-
-                  <p className="text-gray-600 mb-4">{campaign.shortDescription}</p>
-
-                  <div className="flex justify-between items-center text-sm text-gray-500">
-                    <span>Campaign #{hexToDecimal(campaign.token?.nft?.commitment.substring(70,80) ?? "0")}</span>
-                    <span>By: {campaign.owner}</span>
+                  <div className="flex justify-between text-sm text-gray-600">
+                    <span>{((Number(campaign.value) / hexToDecimal(campaign.token?.nft?.commitment.substring(0, 12) ?? "0")) * 100).toFixed(2)}%</span>
+                    <span className="flex items-center space-x-1">
+                      {(Number(campaign.value) / 100000000).toFixed(8)} / {(hexToDecimal(campaign.token?.nft?.commitment.substring(0, 12) ?? "0") / 100000000).toFixed(8)}
+                      <img src={BCHLogo} alt="BCH" className="w-4 h-4" />
+                    </span>
                   </div>
                 </div>
               </div>
-            )
-          ))}
-
-          {isLoading && (
-            <div className="flex justify-center items-center">
-              {/* Replace StyledSpinner with appropriate spinner component */}
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500" />
             </div>
-          )}
+          ))}
         </div>
-      )}
 
+        {/* Loading State */}
+        {isLoading && (
+          <div className="flex justify-center items-center py-12">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+          </div>
+        )}
 
-      {/* Action Modal */}
-      {isActionModalOpen && selectedAction && (
-        <ContractModal
-          action={selectedAction}
-          onSubmit={handleActionSubmit}
-          onClose={() => setIsActionModalOpen(false)}
-          isLoading={isLoading}
-          error={error}
-        />
-      )}
+        {/* Empty State */}
+        {!isLoading && campaigns.length === 0 && (
+          <div className="text-center py-12">
+            <p className="text-gray-600">No campaigns found</p>
+          </div>
+        )}
+
+        {/* Error State */}
+        {error && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-6" role="alert">
+            <strong className="font-bold">Error: </strong>
+            <span className="block sm:inline">{error}</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

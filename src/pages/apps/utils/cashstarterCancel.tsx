@@ -2,9 +2,10 @@
 import { Contract, Utxo, TransactionBuilder, ElectrumNetworkProvider, Network, Unlocker } from 'cashscript';
 import { hexToBin, cashAddressToLockingBytecode, decodeTransaction } from '@bitauth/libauth';
 import { AddressCashStarter, AddressTokensCashStarter, MasterCategoryID, AddressTokensCashStarterCancel } from './values'
+import ElectrumService from '../../../services/ElectrumService';
 
 interface CashStarterCancelParams {
-  electrumServer: ElectrumNetworkProvider | undefined;
+  //electrumServer: ElectrumNetworkProvider | undefined;
   contractCashStarter: Contract | undefined;
   contractCashStarterCancel: Contract | undefined;
   campaignID: string;
@@ -15,7 +16,7 @@ interface CashStarterCancelParams {
 
 async function cashstarterCancel({ electrumServer, contractCashStarter, contractCashStarterCancel, campaignID, usersAddress, signTransaction, setError }: CashStarterCancelParams) {
   
-  if (electrumServer && contractCashStarter && contractCashStarterCancel) {
+  if (ElectrumService && contractCashStarter && contractCashStarterCancel) {
 
     //Creating lockingBytecode for contract address
     const cashStarterLockingBytecodeResult = cashAddressToLockingBytecode(AddressCashStarter);

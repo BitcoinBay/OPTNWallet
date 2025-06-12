@@ -9,11 +9,12 @@ import cashStarterRefund from './cashstarterRefund';
 import cashStarterClaim from './cashstarterClaim';
 import cashStarterStop from './cashstarterStop';
 import cashStarterCancel from './cashstarterCancel';
-//import ArtifactCashStarter from '../../contracts/FundMeV8_Mainnet/json/CashStarter.json';
-//import ArtifactCashStarterRefund from '../../contracts/FundMeV8_Mainnet/json/CashStarterRefund.json';
-//import ArtifactCashStarterStop from '../../contracts/FundMeV8_Mainnet/json/CashStarterStop.json';
-//import ArtifactCashStarterClaim from '../../contracts/FundMeV8_Mainnet/json/CashStarterClaim.json';
-//import ArtifactCashStarterCancel from '../../contracts/FundMeV8_Mainnet/json/CashStarterCancel.json';
+//import CashStarterArtifact from '../../../apis/ContractManager/artifacts/CashStarter/CashStarter.json';
+//import CashStarterManagerArtifact from '../../../apis/ContractManager/artifacts/CashStarter/CashStarterManager.json';
+//import CashStarterCancelArtifact from '../../../apis/ContractManager/artifacts/CashStarter/CashStarterCancel.json';
+//import CashStarterClaimArtifact from '../../../apis/ContractManager/artifacts/CashStarter/CashStarterClaim.json';
+//import CashStarterRefundArtifact from '../../../apis/ContractManager/artifacts/CashStarter/CashStarterRefund.json';
+//import CashStarterStopArtifact from '../../../apis/ContractManager/artifacts/CashStarter/CashStarterStop.json';
 import { stringify } from '@bitauth/libauth';
 import axios, { AxiosError } from 'axios';
 import PledgeModal from './PledgeModal';
@@ -26,8 +27,12 @@ import { Buffer } from 'buffer';
 import { Toast } from '@capacitor/toast';
 import { RootState } from '../../../redux/store';
 import ElectrumServer from '../../../apis/ElectrumServer/ElectrumServer';
+import ElectrumService from '../../../services/ElectrumService';
 import BCHLogo from './bch.png';
 import { useNavigate } from 'react-router-dom';
+
+import { useSelector } from 'react-redux';
+import { UTXO } from '../../../types/types';
 
 interface Pledge {
   campaignID: string;
@@ -105,15 +110,17 @@ const CampaignDetail: React.FC = () => {
   const navigate = useNavigate();
 
   const [usersAddress, setUsersAddress] = useState('bitcoincash:qz500000000000000000000000000000000000000000000000000000000000000');
+  const utxos = useSelector((state: RootState) => state.utxos.utxos);
   // Create an instance of ElectrumServer
-  const electrumServer = ElectrumServer();
+  //const electrumServer = ElectrumServer();
 
+/*
   //////////Compile an artifact into a CashScript Contract object
-  //async function compileContract(contractArtifact: any, args: any[]) {
-  //  const contract = new Contract(contractArtifact, args, {provider: electrumServer, addressType: 'p2sh32'});
-  //  return contract;
-  //}
-
+  async function compileContract(contractArtifact: any, args: any[]) {
+    const contract = new Contract(contractArtifact, args, {provider: ElectrumService, addressType: 'p2sh32'});
+    return contract;
+  }
+*/
   const hexToDecimal = (hex: string): number => {
     // Convert hex to big-endian and then to decimal
     const bigEndianHex = hex.match(/.{2}/g)?.reverse().join('') ?? '0';
@@ -136,7 +143,7 @@ const CampaignDetail: React.FC = () => {
 
   async function formatTime(blocks: number): Promise<string> {
     //const blockHeight = await electrumServer.getBlockHeight();
-    const blockHeight = 90000;
+    const blockHeight = 890000;
     const blocksRemaining = Math.max(blocks - blockHeight, 0);
 
     if (blocksRemaining == 0) {
@@ -166,64 +173,6 @@ const CampaignDetail: React.FC = () => {
     const bch = Number(satoshis) / 100000000;
     return bch.toFixed(8);
   };
-  
-  async function signMessage({ message, userPrompt }: SignMessageParams): Promise<string | undefined> {
-    const options = {
-        message: message,
-        userPrompt: userPrompt
-      };
-
-    console.log('signing message...');
-    try {
-        if (walletConnectInstance) {
-        //const params = JSON.parse(stringify(options));
-        
-        console.log('wc params:');
-        console.log(options);
-        const result = await walletConnectInstance.request({
-            chainId: connectedChain,
-            topic: walletConnectSession.topic,
-            request: {
-                method: "bch_signMessage",
-                params: options,
-            },
-        });
-        console.log('signMessage result: ');
-        console.log(result);
-        return result;
-        }
-    } catch (error) {
-        console.log('signMessage error: ' + error);
-        return undefined;
-    }
-}
-
-async function signTransaction(options: any) {
-  console.log('signing transaction...');
-  try {
-      if (walletConnectInstance) {
-      const params = JSON.parse(stringify(options));
-      console.log('wc params:');
-      console.log(params);
-      //toast.info(`Requesting signature from your wallet...`);
-      await Toast.show({
-        text: 'Requesting signature from your wallet...',
-      });
-      const result = await walletConnectInstance.request({
-          chainId: connectedChain,
-          topic: walletConnectSession.topic,
-          request: {
-          method: "bch_signTransaction",
-          params: params,
-          },
-      });
-      return result;
-      }
-  } catch (error) {
-      console.log('signTransation error: ' + error);
-      return undefined;
-  }
-}
 
   // Function to take users pledge string, verify only one decimal, remove all but numbers, set state
   const handleSetPledgeAmount = (value: string) => {
@@ -248,7 +197,7 @@ async function signTransaction(options: any) {
 const handlePledge = async (name: string, message: string) => {
   setTXPending(true);
 
-  if (electrumServer && usersAddress && campaignUTXO) {
+  if (ElectrumService && usersAddress && campaignUTXO) {
     const campaignID = campaignUTXO.token?.nft?.commitment.substring(70, 80) ?? "0";
     const pledgeID = campaignUTXO.token?.nft?.commitment.substring(62, 70) ?? "0";;
     const pledgeAmount = convertStringToBigInt(stringPledgeAmount);
@@ -261,7 +210,7 @@ const handlePledge = async (name: string, message: string) => {
       message = ' ';
     }
 
-    const signResult = await cashStarterPledge({electrumServer, usersAddress, contractCashStarter, campaignID, pledgeID, pledgeAmount, signTransaction, setError: (msg: string) => Toast.show({ text: msg }), setGotConsolidateError });
+    const signResult = await cashStarterPledge({usersAddress, utxos, contractCashStarter, campaignID, pledgeID, pledgeAmount, setError: (msg: string) => Toast.show({ text: msg }), setGotConsolidateError });
 
     if (signResult != undefined) {
       const rawTx = signResult.signedTransaction;
@@ -269,7 +218,8 @@ const handlePledge = async (name: string, message: string) => {
       console.log(signResult);
 
       try {
-        const result = await electrumServer.sendRawTransaction(rawTx);
+        //const result = await electrumServer.sendRawTransaction(rawTx);
+        const result = await ElectrumService.broadcastTransaction(rawTx);
         //toast.info(`Pledge sent! TxID:\n${result}`);
         await Toast.show({
           text: `Pledge sent! TxID:\n${result}`,
@@ -315,15 +265,15 @@ const handleClaim = async (campaignID: string) => {
   console.log('handleClaim camapignID: ', campaignID);
   setClaimPending(true);
 
-  if (electrumServer && campaignID && usersAddress != '') {
-    const signResult = await cashStarterClaim({electrumServer, usersAddress, contractCashStarter, contractCashStarterClaim, campaignID, signTransaction, setError: (msg: string) => Toast.show({ text: msg })});
+  if (ElectrumService && campaignID && usersAddress != '') {
+    const signResult = await cashStarterClaim({usersAddress, contractCashStarter, contractCashStarterClaim, campaignID, signTransaction, setError: (msg: string) => Toast.show({ text: msg })});
     if (signResult != undefined) {
       const rawTx = signResult.signedTransaction;
       //const rawTx = signResult;
       console.log('signedTransaction from walletconnect: ');
       console.log(signResult);
 
-      electrumServer.sendRawTransaction(rawTx).then((result: string) => {
+      ElectrumService.broadcastTransaction(rawTx).then((result: string) => {
         console.log('Broadcasted, txid: ' + result);
         Toast.show({
           text: `Claimed! TxID: \n${result}`,
@@ -331,7 +281,7 @@ const handleClaim = async (campaignID: string) => {
 
         // Update server stats with the raised BCH
         try {
-          const raisedBCH = Number(campaignUTXO?.satoshis) / 100000000;
+          const raisedBCH = Number(campaignUTXO?.value) / 100000000;
           axios.post('https://fundme.cash/update-stats', {
             raisedBCH: raisedBCH,
             txid: result
@@ -362,8 +312,8 @@ const handleCancel = async (campaignID: string) => {
   console.log('handleClaim camapignID: ', campaignID);
   setCancelPending(true);
 
-  if (electrumServer && campaignID && usersAddress != '') {
-    const signResult = await cashStarterCancel({electrumServer, usersAddress, contractCashStarter, contractCashStarterCancel, campaignID, signTransaction, setError: (msg: string) => Toast.show({ text: msg })});
+  if (ElectrumService && campaignID && usersAddress != '') {
+    const signResult = await cashStarterCancel({usersAddress, contractCashStarter, contractCashStarterCancel, campaignID, signTransaction, setError: (msg: string) => Toast.show({ text: msg })});
     if (signResult != undefined) {
       const rawTx = signResult.signedTransaction;
       console.log('signedTransaction from walletconnect: ');
@@ -372,7 +322,7 @@ const handleCancel = async (campaignID: string) => {
       // Ask user for confirmation before broadcasting
       if (window.confirm("Are you absolutely sure you want to cancel?")) {
         // User clicked OK
-        electrumServer.sendRawTransaction(rawTx).then((result: string) => {
+        ElectrumService.broadcastTransaction(rawTx).then((result: string) => {
           console.log('Broadcasted, txid: ' + result);
           Toast.show({
             text: `Campaign canceled. TxID:\n${result}`,
@@ -406,18 +356,18 @@ const handleRefund = async (campaignID: string, selectedNFT: Utxo) => {
   console.log('handleRefund camapignID: ', campaignID);
   setRefundPending(true);
 
-  if (electrumServer && campaignID && selectedNFT) {
+  if (ElectrumService && campaignID && selectedNFT) {
     const campaignID = selectedNFT.token?.nft?.commitment.substring(70, 80) ?? "0";
     const pledgeID = selectedNFT.token?.nft?.commitment.substring(62, 70) ?? "0";
 
-    const signResult = await cashStarterRefund({electrumServer, usersAddress, contractCashStarter, contractCashStarterRefund, campaignID, selectedNFT, signTransaction, setError: (msg: string) => Toast.show({ text: msg })});
+    const signResult = await cashStarterRefund({ElectrumService, usersAddress, contractCashStarter, contractCashStarterRefund, campaignID, selectedNFT, signTransaction, setError: (msg: string) => Toast.show({ text: msg })});
     if (signResult != undefined) {
       const rawTx = signResult.signedTransaction;
       console.log('signedTransaction from walletconnect: ');
       console.log(signResult);
 
       try {
-        const result = await electrumServer.sendRawTransaction(rawTx);
+        const result = await ElectrumService.broadcastTransaction(rawTx);
         console.log('Broadcasted, txid: ' + result);
 
         const decimalCampaignID = hexToDecimal(campaignID);
@@ -452,16 +402,16 @@ const handleStop = async (campaignID: string) => {
   console.log('handleStop camapignID: ', campaignID);
   setStopPending(true);
 
-  if (electrumServer && campaignID) {
+  if (ElectrumService && campaignID) {
 
-    const signResult = await cashStarterStop({electrumServer, contractCashStarter, contractCashStarterStop, campaignID });
+    const signResult = await cashStarterStop({ElectrumService, contractCashStarter, contractCashStarterStop, campaignID });
     if (signResult != undefined) {
       //const rawTx = signResult.signedTransaction; //using walletConnect
       const rawTx = signResult; //anyone can spend
       console.log('signedTransaction from walletconnect: ');
       console.log(signResult);
 
-      electrumServer.sendRawTransaction(rawTx).then((result: string) => {
+      ElectrumService.broadcastTransaction(rawTx).then((result: string) => {
           console.log('Broadcasted, txid: ' + result);
           Toast.show({
             text: `Campaign stopped. TxID:\n${result}`,
@@ -487,13 +437,13 @@ const handleStop = async (campaignID: string) => {
 async function handleConsolidateUtxos() {
   setTXPending(true);
 
-  if (electrumServer && usersAddress && transactionBuilder) { 
-    const signResult = await consolidateUTXOs({electrumServer, usersAddress, transactionBuilder, signTransaction, setError: (msg: string) => Toast.show({ text: msg }) });
+  if (ElectrumService && usersAddress && transactionBuilder) { 
+    const signResult = await consolidateUTXOs({ElectrumService, usersAddress, transactionBuilder, signTransaction, setError: (msg: string) => Toast.show({ text: msg }) });
     const rawTx = signResult.signedTransaction; 
     console.log('signedTransaction from walletconnect: ');
     console.log(signResult);
     
-    electrumServer.sendRawTransaction(rawTx).then((result: string) => {
+    ElectrumService.broadcastTransaction(rawTx).then((result: string) => {
       Toast.show({
         text: `Consolidated. TxID:\n${result}`,
       });
@@ -519,7 +469,7 @@ async function handleConsolidateUtxos() {
     //console.log('1. useEffect called');
     async function checkAndCompileContracts() {
       //console.log('2. compiling contracts...');
-      if (contractsOK === false && electrumServer) {
+      if (contractsOK === false) {
         try {
           const compiledCashStarter = await compileContract(ArtifactCashStarter, []);
           setContractCashStarter(compiledCashStarter);
@@ -540,7 +490,7 @@ async function handleConsolidateUtxos() {
           console.log('contract compiling error: ' + error);
         }
       } else {
-        console.log('electrumServer is not ready yet');
+        console.log('contracts already compiled');
       }
     }
   
@@ -552,12 +502,12 @@ async function handleConsolidateUtxos() {
       setTransactionBuilder(new TransactionBuilder({ provider }));
     }
 
-  }, [electrumServer]);
+  }, []);
 */
   useEffect(() => {
     async function getCampaign() {
-      if (!electrumServer) return;
-      console.log('electrumServer detected');
+      if (!ElectrumService) return;
+      console.log('ElectrumService detected');
 
       setIsLoading(true);  //starts loading spinner graphic
 
@@ -567,6 +517,7 @@ async function handleConsolidateUtxos() {
         response = await axios.get(`https://fundme.cash/get-campaign/` + id);
         const campaignInfo = response.data;
         setCampaignInfo(campaignInfo);
+
         const pledgeTotal = campaignInfo.pledges.reduce((sum: number, pledge: any) => sum + Number(pledge.amount), 0);
         setPledgeTotal(pledgeTotal);
         
@@ -585,7 +536,7 @@ async function handleConsolidateUtxos() {
 
       //delay to allow electrum to stabilize
       setTimeout(async () => {
-        const cashStarterUTXOs: Utxo[] = await electrumServer.getUtxos(AddressCashStarter);
+        const cashStarterUTXOs: Utxo[] = await ElectrumService.getUTXOS(AddressCashStarter);
         let campaignUTXO = cashStarterUTXOs.find( 
           utxo => utxo.token?.category == MasterCategoryID //only CashStarter NFT's
             && utxo.token?.nft?.capability == 'minting' //only minting ones
@@ -621,7 +572,8 @@ async function handleConsolidateUtxos() {
           } else if (capability == 'minting') {
             const campaignId = hexToDecimal(campaignUTXO.token?.nft?.commitment.substring(70,80) ?? "0");
             const endBlock = hexToDecimal(campaignUTXO.token?.nft?.commitment.substring(52, 60) ?? "0");
-            const blockHeight = await electrumServer.getBlockHeight();
+            //const blockHeight = await ElectrumService.getBlockHeight();
+            const blockHeight = 890000;
 
             //set whether campaign has passed its expiry block, enables Fail button
             if (blockHeight >= endBlock) {
@@ -658,9 +610,9 @@ async function handleConsolidateUtxos() {
 
 // Get refund NFT's for listing so user can select one
 async function fetchReceiptNFTs() {
-  if (electrumServer && usersAddress != '') {
+  if (ElectrumService && usersAddress != '') {
     try {
-      const utxos: Utxo[] = await electrumServer.getUtxos(usersAddress);
+      const utxos: Utxo[] = await ElectrumService.getUTXOS(usersAddress);
 
       const filteredNFTs: Utxo[] = utxos.filter(utxo => 
         utxo.token?.category == MasterCategoryID
@@ -754,7 +706,7 @@ const NFTItem: React.FC<{ utxo: Utxo }> = ({ utxo }) => {
 };
 
   return (
-    <div className="min-h-screen w-full bg-black text-gray-50">
+    <div className="min-h-screen w-full bg-white text-gray-900">
       {/* Welcome Image */}
       <div className="flex justify-center mt-4">
         <img
@@ -767,14 +719,14 @@ const NFTItem: React.FC<{ utxo: Utxo }> = ({ utxo }) => {
 
         <div className="flex justify-between items-center mb-6">
           <button
-            onClick={() => navigate('/apps')}
+            onClick={() => navigate('/apps/fundme')}
             className="bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded z-20"
           >
-            Back to Apps
+            Back to Campaigns
           </button>
         </div>
 
-      <div className="absolute inset-0 bg-gradient-to-b from-[#0AC18E]/20 to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-b from-[#0AC18E]/10 to-transparent" />
 
         <PledgeModal
           isOpen={isModalOpen}
@@ -798,10 +750,13 @@ const NFTItem: React.FC<{ utxo: Utxo }> = ({ utxo }) => {
               {/* Banner Section */}
               <div className="flex flex-col">
                 <div 
-                  className="w-full h-[200px] bg-cover bg-center rounded-t-lg"
-                  style={{ backgroundImage: `url(${campaignInfo.banner})` }}
+                  className="w-full bg-cover bg-center rounded-t-lg"
+                  style={{ 
+                    backgroundImage: `url(${campaignInfo.banner})`,
+                    aspectRatio: '500/120'
+                  }}
                 />
-                <div className="flex items-center p-4 bg-black/50">
+                <div className="flex items-center p-4 bg-white/50">
                   {isLoading ? (
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0AC18E]" />
                   ) : (
@@ -810,21 +765,21 @@ const NFTItem: React.FC<{ utxo: Utxo }> = ({ utxo }) => {
                         className="h-12 w-12 bg-cover bg-center rounded-full"
                         style={{ backgroundImage: `url(${campaignInfo.logo})` }}
                       />
-                      <span className="ml-3 font-medium">{campaignInfo.owner}</span>
+                      <span className="ml-3 font-medium text-gray-900">{campaignInfo.owner}</span>
                     </>
                   )}
                 </div>
               </div>
 
               {/* Title */}
-              <h1 className="text-2xl font-bold text-center">{campaignInfo.name}</h1>
+              <h1 className="text-2xl font-bold text-center text-gray-900">{campaignInfo.name}</h1>
 
               {/* Progress Bar */}
               <div 
-                className="relative w-full h-8 bg-gray-800 rounded-full cursor-pointer"
+                className="relative w-full h-8 bg-gray-200 rounded-full cursor-pointer"
                 onClick={() => {
                   if (campaignUTXO) {
-                    const currentAmount = Number(campaignUTXO.satoshis) / 100000000;
+                    const currentAmount = Number(campaignUTXO.value) / 100000000;
                     const targetAmount = hexToDecimal(campaignUTXO.token?.nft?.commitment.substring(0, 12) ?? "0") / 100000000;
                     const remainingAmount = (targetAmount - currentAmount).toFixed(8);
                     handleSetPledgeAmount(remainingAmount);
@@ -834,14 +789,14 @@ const NFTItem: React.FC<{ utxo: Utxo }> = ({ utxo }) => {
                 <div 
                   className="absolute left-0 top-0 h-full bg-[#0AC18E] rounded-full transition-all"
                   style={{ 
-                    width: `${(Number(campaignUTXO.satoshis) / hexToDecimal(campaignUTXO.token?.nft?.commitment.substring(0, 12) ?? "0")) * 100}%` 
+                    width: `${(Number(campaignUTXO.value) / hexToDecimal(campaignUTXO.token?.nft?.commitment.substring(0, 12) ?? "0")) * 100}%` 
                   }}
                 />
-                <div className="absolute inset-0 flex justify-center items-center">
-                  {((Number(campaignUTXO.satoshis) / hexToDecimal(campaignUTXO.token?.nft?.commitment.substring(0, 12) ?? "0")) * 100).toFixed(2)}%
+                <div className="absolute inset-0 flex justify-center items-center text-gray-900">
+                  {((Number(campaignUTXO.value) / hexToDecimal(campaignUTXO.token?.nft?.commitment.substring(0, 12) ?? "0")) * 100).toFixed(2)}%
                 </div>
-                <div className="absolute -bottom-6 w-full text-center text-sm">
-                  {(Number(campaignUTXO.satoshis) / 100000000)} / {(hexToDecimal(campaignUTXO.token?.nft?.commitment.substring(0, 12) ?? "0") / 100000000)}
+                <div className="absolute -bottom-6 w-full text-center text-sm text-gray-600">
+                  {(Number(campaignUTXO.value) / 100000000)} / {(hexToDecimal(campaignUTXO.token?.nft?.commitment.substring(0, 12) ?? "0") / 100000000)}
                 </div>
                 {!isFailed && !isClaimed && isExpired && (
                   <button 
@@ -857,9 +812,9 @@ const NFTItem: React.FC<{ utxo: Utxo }> = ({ utxo }) => {
               </div>
 
               {/* Campaign Details Section */}
-              <div className="bg-gray-900 rounded-lg p-6 space-y-6">
+              <div className="bg-white rounded-lg shadow p-6 space-y-6">
                 {/* Campaign ID and End Date Row */}
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center text-gray-900">
                   <span><b>Campaign:</b> #{hexToDecimal(campaignUTXO.token?.nft?.commitment.substring(70,80) ?? "0")}</span>
                   {campaignUTXO.token?.nft?.capability == 'mutable' ? (
                     <span className="text-red-500">Campaign Stopped</span>
@@ -871,7 +826,7 @@ const NFTItem: React.FC<{ utxo: Utxo }> = ({ utxo }) => {
 
                 {/* Pledge Input Section */}
                 <div className="space-y-4">
-                  <h3 className="text-lg font-semibold">Make a Pledge</h3>
+                  <h3 className="text-lg font-semibold text-gray-900">Make a Pledge</h3>
                   <div className="flex items-center gap-4">
                     <div 
                       className="h-10 w-10 bg-cover bg-center"
@@ -882,12 +837,12 @@ const NFTItem: React.FC<{ utxo: Utxo }> = ({ utxo }) => {
                       placeholder="0.0001"
                       value={stringPledgeAmount}
                       onChange={(e) => handleSetPledgeAmount(e.target.value)}
-                      className="bg-white text-black px-4 py-2 rounded-lg"
+                      className="bg-white text-gray-900 border border-gray-300 px-4 py-2 rounded-lg"
                     />
                     <button
-                      disabled={isFailed || isClaimed}
+                      disabled={isFailed || isClaimed || campaignInfo.status != 'active'}
                       onClick={() => handlePledgeModal()}
-                      className="px-6 py-2 bg-[#0AC18E] rounded-full disabled:bg-gray-500 disabled:cursor-not-allowed hover:bg-[#0cd9a0]"
+                      className="px-6 py-2 bg-[#0AC18E] text-white rounded-full disabled:bg-gray-400 disabled:cursor-not-allowed hover:bg-[#0cd9a0]"
                     >
                       {txPending ? (
                         <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white" />
@@ -900,18 +855,18 @@ const NFTItem: React.FC<{ utxo: Utxo }> = ({ utxo }) => {
 
                 {/* NFT Refund Section */}
                 <div className="space-y-4">
-                  <h3 className="text-lg font-semibold">Cancel your Pledge</h3>
+                  <h3 className="text-lg font-semibold text-gray-900">Cancel your Pledge</h3>
                   <div className="flex gap-4 items-center">
                     <button 
                       onClick={fetchReceiptNFTs}
-                      className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-full"
+                      className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-900 rounded-full"
                     >
                       Refresh
                     </button>
                     <button
                       disabled={!selectedNFT}
                       onClick={() => handleRefund(campaignUTXO.token?.nft?.commitment.substring(70,80) ?? "0", selectedNFT!)}
-                      className="px-4 py-2 bg-[#0AC18E] rounded-full disabled:bg-gray-500 disabled:cursor-not-allowed hover:bg-[#0cd9a0]"
+                      className="px-4 py-2 bg-[#0AC18E] text-white rounded-full disabled:bg-gray-400 disabled:cursor-not-allowed hover:bg-[#0cd9a0]"
                     >
                       {refundPending ? (
                         <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white" />
@@ -929,22 +884,22 @@ const NFTItem: React.FC<{ utxo: Utxo }> = ({ utxo }) => {
                 </div>
 
                 {/* Navigation Tabs */}
-                <div className="flex border-b border-gray-700">
+                <div className="flex border-b border-gray-200">
                   <button
-                    className={`px-6 py-3 ${selectedTab === 'Overview' ? 'border-b-2 border-[#0AC18E] text-[#0AC18E]' : 'text-gray-400 hover:text-gray-200'}`}
+                    className={`px-6 py-3 ${selectedTab === 'Overview' ? 'border-b-2 border-[#0AC18E] text-[#0AC18E]' : 'text-gray-600 hover:text-gray-900'}`}
                     onClick={() => handleSelectTab('Overview')}
                   >
                     Overview
                   </button>
                   <button
-                    className={`px-6 py-3 ${selectedTab === 'Updates' ? 'border-b-2 border-[#0AC18E] text-[#0AC18E]' : 'text-gray-400 hover:text-gray-200'}`}
+                    className={`px-6 py-3 ${selectedTab === 'Updates' ? 'border-b-2 border-[#0AC18E] text-[#0AC18E]' : 'text-gray-600 hover:text-gray-900'}`}
                     onClick={() => handleSelectTab('Updates')}
                   >
                     Updates
                   </button>
                   {campaignInfo.ownersAddress == usersAddress ? (
                     <button
-                      className={`px-6 py-3 ${selectedTab === 'Claim' ? 'border-b-2 border-[#0AC18E] text-[#0AC18E]' : 'text-gray-400 hover:text-gray-200'}`}
+                      className={`px-6 py-3 ${selectedTab === 'Claim' ? 'border-b-2 border-[#0AC18E] text-[#0AC18E]' : 'text-gray-600 hover:text-gray-900'}`}
                       onClick={() => handleSelectTab('Claim')}
                     >
                       Claim
@@ -957,10 +912,10 @@ const NFTItem: React.FC<{ utxo: Utxo }> = ({ utxo }) => {
                 {/* Content Sections */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
                   {/* Description and Updates Tab Content */}
-                  <div className="lg:col-span-2 bg-gray-900 rounded-lg p-6">
+                  <div className="lg:col-span-2 bg-white rounded-lg shadow p-6">
                     {selectedTab === 'Overview' && (
                       <div 
-                        className="prose prose-invert max-w-none"
+                        className="prose max-w-none text-gray-900"
                         dangerouslySetInnerHTML={{ __html: campaignInfo.description }} 
                       />
                     )}
@@ -973,7 +928,7 @@ const NFTItem: React.FC<{ utxo: Utxo }> = ({ utxo }) => {
                             RichText Editor here
                             <button 
                               onClick={handleSubmitUpdate}
-                              className="px-6 py-2 bg-[#0AC18E] rounded-full hover:bg-[#0cd9a0]"
+                              className="px-6 py-2 bg-[#0AC18E] text-white rounded-full hover:bg-[#0cd9a0]"
                             >
                               Submit Update
                             </button>
@@ -982,16 +937,16 @@ const NFTItem: React.FC<{ utxo: Utxo }> = ({ utxo }) => {
                         
                         {campaignInfo?.updates.length > 0 ? (
                           campaignInfo?.updates.map((update: any) => (
-                            <div key={update.number} className="bg-gray-800 rounded-lg p-4">
-                              <div className="font-semibold mb-2">Update #{update.number}</div>
+                            <div key={update.number} className="bg-gray-50 rounded-lg p-4">
+                              <div className="font-semibold mb-2 text-gray-900">Update #{update.number}</div>
                               <div 
-                                className="prose prose-invert max-w-none"
+                                className="prose max-w-none text-gray-900"
                                 dangerouslySetInnerHTML={{ __html: update.text }} 
                               />
                             </div>
                           ))
                         ) : (
-                          <p className="text-gray-400">No updates have been posted by the creator yet.</p>
+                          <p className="text-gray-600">No updates have been posted by the creator yet.</p>
                         )}
                       </div>
                     )}
@@ -999,9 +954,9 @@ const NFTItem: React.FC<{ utxo: Utxo }> = ({ utxo }) => {
                   {selectedTab === 'Claim' && (
                     <div className="space-y-6 text-center">
                       <button
-                        disabled={(Number(campaignUTXO.satoshis)) < (hexToDecimal(campaignUTXO.token?.nft?.commitment.substring(0, 12) ?? "0"))}
+                        disabled={(Number(campaignUTXO.value)) < (hexToDecimal(campaignUTXO.token?.nft?.commitment.substring(0, 12) ?? "0"))}
                         onClick={() => handleClaim(campaignUTXO.token?.nft?.commitment.substring(70,80) ?? "0")}
-                        className="px-6 py-2 bg-[#0AC18E] rounded-full disabled:bg-gray-500 disabled:cursor-not-allowed hover:bg-[#0cd9a0]"
+                        className="px-6 py-2 bg-[#0AC18E] text-white rounded-full disabled:bg-gray-400 disabled:cursor-not-allowed hover:bg-[#0cd9a0]"
                       >
                         {claimPending ? (
                           <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white" />
@@ -1009,7 +964,7 @@ const NFTItem: React.FC<{ utxo: Utxo }> = ({ utxo }) => {
                           'Claim'
                         )}
                       </button>
-                      <p className="text-gray-400">
+                      <p className="text-gray-600">
                         Only the address that created the campaign can Claim the campaign.<br />
                         The creator can claim the raised funds at any time when they are 100% or above the initial funding target.
                       </p>
@@ -1017,7 +972,7 @@ const NFTItem: React.FC<{ utxo: Utxo }> = ({ utxo }) => {
                       <button
                         disabled={campaignUTXO.token?.nft?.capability != 'minting'}
                         onClick={() => handleCancel(campaignUTXO.token?.nft?.commitment.substring(70,80) ?? "0")}
-                        className="px-6 py-2 bg-red-500 rounded-full disabled:bg-gray-500 disabled:cursor-not-allowed hover:bg-red-600"
+                        className="px-6 py-2 bg-red-500 text-white rounded-full disabled:bg-gray-400 disabled:cursor-not-allowed hover:bg-red-600"
                       >
                         {cancelPending ? (
                           <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white" />
@@ -1025,7 +980,7 @@ const NFTItem: React.FC<{ utxo: Utxo }> = ({ utxo }) => {
                           'Cancel'
                         )}
                       </button>
-                      <p className="text-gray-400">
+                      <p className="text-gray-600">
                         Cancel an active campaign, preventing new pledges.<br/>
                         Only the address that created the campaign can Cancel the campaign.
                       </p>
@@ -1034,25 +989,25 @@ const NFTItem: React.FC<{ utxo: Utxo }> = ({ utxo }) => {
                 </div>
 
                 {/* Pledges Sidebar */}
-                <div className="bg-gray-900 rounded-lg p-6">
-                  <h3 className="text-lg font-semibold mb-6">Pledges</h3>
+                <div className="bg-white rounded-lg shadow p-6">
+                  <h3 className="text-lg font-semibold mb-6 text-gray-900">Pledges</h3>
                   {!campaignInfo ? (
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0AC18E] mx-auto" />
                   ) : (
                     <div className="space-y-4">
                       {campaignInfo.pledges.map((pledge, index) => (
-                        <div key={index} className="bg-gray-800 rounded-lg p-4">
+                        <div key={index} className="bg-gray-50 rounded-lg p-4">
                           <div className="flex justify-between items-center mb-2">
-                            <span className="font-medium truncate max-w-[200px]">{pledge.name}</span>
+                            <span className="font-medium truncate max-w-[200px] text-gray-900">{pledge.name}</span>
                             <div className="flex items-center gap-2">
                               <div 
                                 className="h-5 w-5 bg-cover bg-center"
                                 style={{ backgroundImage: `url(${BCHLogo})` }}
                               />
-                              {pledge.amount}
+                              <span className="text-gray-900">{pledge.amount}</span>
                             </div>
                           </div>
-                          <p className="text-gray-400 italic mb-2">"{pledge.message}"</p>
+                          <p className="text-gray-600 italic mb-2">"{pledge.message}"</p>
                           <div className="text-sm text-gray-500">#{pledge.pledgeID}</div>
                         </div>
                       ))}
@@ -1072,10 +1027,13 @@ const NFTItem: React.FC<{ utxo: Utxo }> = ({ utxo }) => {
             {/* Banner and User Info */}
             <div className="flex flex-col">
               <div 
-                className="w-full h-[200px] bg-cover bg-center rounded-t-lg"
-                style={{ backgroundImage: `url(${campaignInfo.banner})` }}
+                className="w-full bg-cover bg-center rounded-t-lg"
+                style={{ 
+                  backgroundImage: `url(${campaignInfo.banner})`,
+                  aspectRatio: '500/120'
+                }}
               />
-              <div className="flex items-center p-4 bg-black/50">
+              <div className="flex items-center p-4 bg-white/50">
                 {isLoading ? (
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0AC18E]" />
                 ) : (
@@ -1084,36 +1042,36 @@ const NFTItem: React.FC<{ utxo: Utxo }> = ({ utxo }) => {
                       className="h-12 w-12 bg-cover bg-center rounded-full"
                       style={{ backgroundImage: `url(${campaignInfo.logo})` }}
                     />
-                    <span className="font-medium">{campaignInfo.owner}</span>
+                    <span className="font-medium text-gray-900">{campaignInfo.owner}</span>
                   </div>
                 )}
               </div>
             </div>
 
             {/* Campaign Title */}
-            <h1 className="text-2xl font-bold text-center my-6">{campaignInfo.name}</h1>
+            <h1 className="text-2xl font-bold text-center my-6 text-gray-900">{campaignInfo.name}</h1>
 
             {/* Progress Bar */}
-            <div className="relative w-full h-8 bg-gray-800 rounded-full mb-6">
-              <div className="absolute inset-0 flex justify-center items-center">
+            <div className="relative w-full h-8 bg-gray-200 rounded-full mb-6">
+              <div className="absolute inset-0 flex justify-center items-center text-gray-900">
                 {pledgeTotal}
               </div>
               <div className="absolute left-0 top-0 h-full bg-[#0AC18E] rounded-full w-full" />
             </div>
 
             {/* Pledge Bar */}
-            <div className="bg-gray-900 rounded-lg p-6 space-y-6">
+            <div className="bg-white rounded-lg shadow p-6 space-y-6">
               {/* Campaign Details Row */}
               <div className="relative flex justify-between items-center">
-                <div className="absolute inset-0 bg-black/50" />
-                <span className="relative z-10"><b>Campaign:</b>&nbsp;#{id}</span>
+                <div className="absolute inset-0 bg-gray-100/50" />
+                <span className="relative z-10 text-gray-900"><b>Campaign:</b>&nbsp;#{id}</span>
                 {!isLoading && (
                   <>
-                    <span className="relative z-10">
+                    <span className="relative z-10 text-gray-900">
                       {campaignInfo.pledges.length > 0 && !isFailed ? 'Campaign Successful' : 'Campaign Failed'}
                     </span>
                     {endBlock != 0 && (
-                      <span className="relative z-10"><b>End Block:</b>&nbsp;{endBlock}</span>
+                      <span className="relative z-10 text-gray-900"><b>End Block:</b>&nbsp;{endBlock}</span>
                     )}
                   </>
                 )}
@@ -1121,8 +1079,8 @@ const NFTItem: React.FC<{ utxo: Utxo }> = ({ utxo }) => {
 
               {/* Pledge Input Section */}
               <div className="relative space-y-4">
-                <div className="absolute inset-0 bg-black/50" />
-                <h3 className="relative z-10 text-lg font-semibold">Make a Pledge</h3>
+                <div className="absolute inset-0 bg-gray-100/50" />
+                <h3 className="relative z-10 text-lg font-semibold text-gray-900">Make a Pledge</h3>
                 <div className="h-[15px]" />
                 <div className="relative z-10 flex flex-col items-center gap-4">
                   <div 
@@ -1134,19 +1092,19 @@ const NFTItem: React.FC<{ utxo: Utxo }> = ({ utxo }) => {
                     placeholder="Amount"
                     value={stringPledgeAmount}
                     onChange={(e) => handleSetPledgeAmount(e.target.value)}
-                    className="bg-white text-black px-4 py-2 rounded-lg w-full"
+                    className="bg-white text-gray-900 border border-gray-300 px-4 py-2 rounded-lg w-full"
                   />
                 </div>
               </div>
 
               {/* NFTs Section */}
               <div className="relative space-y-4">
-                <div className="absolute inset-0 bg-black/50" />
-                <h3 className="relative z-10 text-lg font-semibold">See your Pledge</h3>
+                <div className="absolute inset-0 bg-gray-100/50" />
+                <h3 className="relative z-10 text-lg font-semibold text-gray-900">See your Pledge</h3>
                 <div className="relative z-10 flex justify-between items-center">
                   <button 
                     onClick={fetchReceiptNFTs}
-                    className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-full"
+                    className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-900 rounded-full"
                   >
                     Refresh
                   </button>
@@ -1160,15 +1118,15 @@ const NFTItem: React.FC<{ utxo: Utxo }> = ({ utxo }) => {
             </div>
 
             {/* Navigation Tabs */}
-            <div className="flex border-b border-gray-700 mt-6">
+            <div className="flex border-b border-gray-200 mt-6">
               <button
-                className={`px-6 py-3 ${selectedTab === 'Overview' ? 'border-b-2 border-[#0AC18E] text-[#0AC18E]' : 'text-gray-400 hover:text-gray-200'}`}
+                className={`px-6 py-3 ${selectedTab === 'Overview' ? 'border-b-2 border-[#0AC18E] text-[#0AC18E]' : 'text-gray-600 hover:text-gray-900'}`}
                 onClick={() => handleSelectTab('Overview')}
               >
                 Overview
               </button>
               <button
-                className={`px-6 py-3 ${selectedTab === 'Updates' ? 'border-b-2 border-[#0AC18E] text-[#0AC18E]' : 'text-gray-400 hover:text-gray-200'}`}
+                className={`px-6 py-3 ${selectedTab === 'Updates' ? 'border-b-2 border-[#0AC18E] text-[#0AC18E]' : 'text-gray-600 hover:text-gray-900'}`}
                 onClick={() => handleSelectTab('Updates')}
               >
                 Updates
@@ -1179,10 +1137,10 @@ const NFTItem: React.FC<{ utxo: Utxo }> = ({ utxo }) => {
             {/* Description and Links Container */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
               {/* Main Content */}
-              <div className="lg:col-span-2 bg-gray-900 rounded-lg p-6">
+              <div className="lg:col-span-2 bg-white rounded-lg shadow p-6">
                 {selectedTab === 'Overview' && (
                   <div 
-                    className="prose prose-invert max-w-none"
+                    className="prose max-w-none text-gray-900"
                     dangerouslySetInnerHTML={{ __html: campaignInfo.description }} 
                   />
                 )}
@@ -1199,14 +1157,14 @@ const NFTItem: React.FC<{ utxo: Utxo }> = ({ utxo }) => {
                                 onChange={(e) => setIsComplete(e.target.checked)}
                                 className="form-checkbox"
                               />
-                              <label>The campaign is complete</label>
+                              <label className="text-gray-900">The campaign is complete</label>
                             </div>
                             <input 
                               type="text"
                               value={urlAddress}
                               onChange={(e) => setUrlAddress(e.target.value)}
                               placeholder="Enter URL address..."
-                              className="w-full px-4 py-2 bg-gray-800 rounded-lg"
+                              className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-900"
                             />
                           </>
                         )}
@@ -1214,7 +1172,7 @@ const NFTItem: React.FC<{ utxo: Utxo }> = ({ utxo }) => {
                         {/*<RichTextEditor isUpdate={true} value={updateText} onChange={setUpdateText} />*/}
                         <button 
                           onClick={handleSubmitUpdate}
-                          className="px-6 py-2 bg-[#0AC18E] rounded-full hover:bg-[#0cd9a0]"
+                          className="px-6 py-2 bg-[#0AC18E] text-white rounded-full hover:bg-[#0cd9a0]"
                         >
                           Submit Update
                         </button>
@@ -1223,39 +1181,39 @@ const NFTItem: React.FC<{ utxo: Utxo }> = ({ utxo }) => {
                     
                     {campaignInfo?.updates.length > 0 ? (
                       campaignInfo?.updates.map((update: any) => (
-                        <div key={update.number} className="bg-gray-800 rounded-lg p-4 text-left">
-                          <div className="font-semibold mb-2">Update #{update.number}</div>
+                        <div key={update.number} className="bg-gray-50 rounded-lg p-4 text-left">
+                          <div className="font-semibold mb-2 text-gray-900">Update #{update.number}</div>
                           <div 
-                            className="prose prose-invert max-w-none"
+                            className="prose max-w-none text-gray-900"
                             dangerouslySetInnerHTML={{ __html: update.text }} 
                           />
                         </div>
                       ))
                     ) : (
-                      'No updates have been posted by the creator yet.'
+                      <p className="text-gray-600">No updates have been posted by the creator yet.</p>
                     )}
                   </div>
                 )}
               </div>
 
               {/* Pledges Sidebar */}
-              <div className="bg-gray-900 rounded-lg p-6">
-                <h3 className="text-lg font-semibold mb-6">Pledges</h3>
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-lg font-semibold mb-6 text-gray-900">Pledges</h3>
                 {!campaignInfo ? (
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0AC18E] mx-auto" />
                 ) : (
                   <div className="space-y-4">
                     {campaignInfo.pledges.map((pledge, index) => (
-                      <div key={index} className="bg-gray-800 rounded-lg p-4">
-                        <div className="font-medium mb-2 truncate">{pledge.name}</div>
-                        <p className="text-gray-400 italic mb-2">{pledge.message}</p>
+                      <div key={index} className="bg-gray-50 rounded-lg p-4">
+                        <div className="font-medium mb-2 truncate text-gray-900">{pledge.name}</div>
+                        <p className="text-gray-600 italic mb-2">{pledge.message}</p>
                         <div className="flex justify-between items-center">
                           <div className="flex items-center gap-2">
                             <div 
                               className="h-5 w-5 bg-cover bg-center"
                               style={{ backgroundImage: `url(${BCHLogo})` }}
                             />
-                            {pledge.amount}
+                            <span className="text-gray-900">{pledge.amount}</span>
                           </div>
                           <span className="text-sm text-gray-500">#{pledge.pledgeID}</span>
                         </div>
