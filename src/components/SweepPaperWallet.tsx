@@ -2,7 +2,6 @@
 
 import React, { useState } from 'react';
 import {
-  CapacitorBarcodeScanner,
   CapacitorBarcodeScannerTypeHint,
 } from '@capacitor/barcode-scanner';
 import { Toast } from '@capacitor/toast';
@@ -14,14 +13,40 @@ import {
 import { FaCamera } from 'react-icons/fa';
 import ElectrumService from '../services/ElectrumService';
 import { UTXO } from '../types/types';
+import { PaperWalletSecretStore } from '../services/PaperWalletSecretStore';
 import { useSelector } from 'react-redux';
-import { RootState } from '../redux/store';
-import { selectCurrentNetwork } from '../redux/selectors/networkSelectors';
+import { RootState } from '../state/store';
+import { selectCurrentNetwork } from '../state/selectors/networkSelectors';
 import { PREFIX } from '../utils/constants';
+import {
+  getBarcodeScannerErrorMessage,
+  scanBarcodeSafely,
+} from '../utils/barcodeScanner';
 
 interface SweepPaperWalletProps {
   setPaperWalletUTXOs: React.Dispatch<React.SetStateAction<UTXO[]>>;
 }
+
+const BASE58_WIF_PATTERN = /^[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+$/;
+
+const extractWifCandidates = (value: string): string[] => {
+  const trimmed = value.trim();
+  const candidates = [trimmed];
+
+  const lastColonIndex = trimmed.lastIndexOf(':');
+  if (lastColonIndex !== -1) {
+    const suffix = trimmed.slice(lastColonIndex + 1).trim();
+    if (
+      suffix.length > 0 &&
+      suffix !== trimmed &&
+      BASE58_WIF_PATTERN.test(suffix)
+    ) {
+      candidates.push(suffix);
+    }
+  }
+
+  return [...new Set(candidates)];
+};
 
 const SweepPaperWallet: React.FC<SweepPaperWalletProps> = ({
   setPaperWalletUTXOs,
@@ -40,7 +65,7 @@ const SweepPaperWallet: React.FC<SweepPaperWalletProps> = ({
   const handleScan = async () => {
     try {
       // Optionally, check and request permissions here
-      const result = await CapacitorBarcodeScanner.scanBarcode({
+      const result = await scanBarcodeSafely({
         hint: CapacitorBarcodeScannerTypeHint.ALL, // Hint for WIF format
         cameraDirection: 1, // 0 for front, 1 for back
       });
@@ -57,7 +82,7 @@ const SweepPaperWallet: React.FC<SweepPaperWalletProps> = ({
     } catch (err) {
       console.error('Scan error:', err);
       await Toast.show({
-        text: 'Failed to scan QR code. Please ensure camera permissions are granted and try again.',
+        text: getBarcodeScannerErrorMessage(err),
       });
     }
   };
@@ -66,11 +91,28 @@ const SweepPaperWallet: React.FC<SweepPaperWalletProps> = ({
   const processWifKey = async (wif: string) => {
     setLoading(true);
     setError('');
+    PaperWalletSecretStore.clear();
     // setCashAddress('');
 
     try {
-      // Decode the WIF key
-      const decoded = decodePrivateKeyWif(wif);
+      // Try the scanned payload as-is first, then fall back to
+      // stripping a QR label prefix like `bch_wif:`.
+      const decodedResult = extractWifCandidates(wif).reduce<ReturnType<
+        typeof decodePrivateKeyWif
+      > | null>((result, candidate) => {
+        if (result && typeof result !== 'string') {
+          return result;
+        }
+
+        const decodedCandidate = decodePrivateKeyWif(candidate);
+        if (typeof decodedCandidate !== 'string') {
+          return decodedCandidate;
+        }
+
+        return result ?? decodedCandidate;
+      }, null);
+
+      const decoded = decodedResult ?? decodePrivateKeyWif(wif);
 
       if (typeof decoded === 'string') {
         // It's an error message
@@ -107,7 +149,7 @@ const SweepPaperWallet: React.FC<SweepPaperWalletProps> = ({
       // setCashAddress(address);
 
       // Fetch UTXOs
-      const fetchedUtxos = await ElectrumService.getUTXOS(address).then(
+      const fetchedUtxos = await ElectrumService.getUTXOs(address).then(
         (res) => {
           return res.filter((utxo) => !utxo.token);
         }
@@ -118,15 +160,18 @@ const SweepPaperWallet: React.FC<SweepPaperWalletProps> = ({
           text: 'No UTXOs found for this address.',
         });
       } else {
-        // Mark UTXOs as paper wallet UTXOs
-        const markedUtxos = fetchedUtxos.map((utxo) => ({
-          ...utxo,
-          id: undefined,
-          isPaperWallet: true,
-          address: address,
-          amount: utxo.value,
-          privateKey: pkArray,
-        }));
+        // Register key in-memory per outpoint, and mark UTXOs as paper wallet UTXOs
+        const markedUtxos = fetchedUtxos.map((utxo) => {
+          PaperWalletSecretStore.set(utxo.tx_hash, utxo.tx_pos, pkArray);
+          return {
+            ...utxo,
+            id: undefined,
+            isPaperWallet: true,
+            address: address,
+            amount: utxo.value,
+            // NOTE: do NOT attach privateKey to UTXO objects
+          };
+        });
         // await Toast.show({
         //   text: `Fetched ${markedUtxos.length} UTXO(s).`,
         // });
@@ -147,14 +192,14 @@ const SweepPaperWallet: React.FC<SweepPaperWalletProps> = ({
     <div className="flex items-center">
       <button
         onClick={handleScan}
-        className="bg-green-500 font-bold text-white py-2 px-4 rounded flex items-center flex-1"
+        className="wallet-btn-primary font-bold py-2 px-4 flex items-center flex-1"
         disabled={loading}
       >
         <FaCamera className="mr-2" /> Scan
       </button>
       {/* Error Message */}
       {error && (
-        <div className="mb-4 text-red-500">
+        <div className="mb-4 wallet-danger-text">
           <span>{error}</span>
         </div>
       )}
@@ -162,7 +207,7 @@ const SweepPaperWallet: React.FC<SweepPaperWalletProps> = ({
       {/* {cashAddress && (
         <div className="mb-4">
           <h4 className="text-md font-semibold mb-2">Cash Address</h4>
-          <p className="bg-gray-100 p-2 rounded break-words">{cashAddress}</p>
+          <p className="wallet-surface-strong p-2 rounded break-words">{cashAddress}</p>
         </div>
       )} */}
     </div>

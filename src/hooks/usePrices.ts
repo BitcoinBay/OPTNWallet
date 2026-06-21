@@ -1,37 +1,33 @@
-import { useEffect, useState } from 'react';
+// src/hooks/usePrices.ts
+import { useEffect } from 'react';
 import { useDispatch } from 'react-redux';
-import { getRate } from '../services/priceService';
-import { updatePrices } from '../redux/priceFeedSlice';
+import { getQuotesUSD, type BaseSymbol } from '../services/priceService';
+import { upsertPrices, type PriceDatum } from '../state/slices/priceFeedSlice';
 import { INTERVAL } from '../utils/constants';
 
-const SYMBOLS = ['BTC', 'BCH', 'ETH'] as const;
-
-export type Rates = Record<string, string | null>;
+const BASES: BaseSymbol[] = ['BTC', 'BCH', 'ETH'];
 
 export function usePrices() {
   const dispatch = useDispatch();
-  const [rates, setRates] = useState<Rates>({});
 
   useEffect(() => {
     let alive = true;
 
     async function fetchAll() {
-    //   console.group('[usePrices] fetchAll start');
-      const result: Rates = {};
+      try {
+        const quotes = await getQuotesUSD(BASES);
+        const payload: Record<string, PriceDatum> = Object.fromEntries(
+          quotes.map((q) => [
+            `${q.base}-${q.quote}`,
+            { price: q.price, ts: q.ts, source: q.source } as PriceDatum,
+          ])
+        );
 
-      for (const symbol of SYMBOLS) {
-        // console.log(`[usePrices] fetching ${symbol}`);
-        const r = await getRate(symbol);
-        // console.log(`[usePrices] result ${symbol}:`, r);
-        result[symbol] = r;
+        if (!alive) return;
+        dispatch(upsertPrices(payload));
+      } catch (_e) {
+        // optional: log or surface telemetry
       }
-
-      if (alive) {
-        // console.log('[usePrices] dispatching updatePrices with', result);
-        setRates(result);
-        dispatch(updatePrices(result));
-      }
-    //   console.groupEnd();
     }
 
     fetchAll();
@@ -41,6 +37,4 @@ export function usePrices() {
       clearInterval(id);
     };
   }, [dispatch]);
-
-  return rates;
 }

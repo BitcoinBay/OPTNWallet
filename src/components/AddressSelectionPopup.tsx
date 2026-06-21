@@ -3,35 +3,51 @@ import KeyService from '../services/KeyService';
 import { shortenTxHash } from '../utils/shortenHash';
 import { PREFIX } from '../utils/constants';
 import { useSelector } from 'react-redux';
-import { RootState } from '../redux/store';
-import { selectCurrentNetwork } from '../redux/selectors/networkSelectors';
+import { RootState } from '../state/store';
+import { selectCurrentNetwork } from '../state/selectors/networkSelectors';
+import { selectWalletId } from '../state/slices/walletSlice';
 
 interface AddressSelectionPopupProps {
   onSelect: (address: string) => void;
   onClose: () => void;
 }
 
+interface SelectableAddress {
+  id: number;
+  address: string;
+}
+
 const AddressSelectionPopup: React.FC<AddressSelectionPopupProps> = ({
   onSelect,
   onClose,
 }) => {
-  const [addresses, setAddresses] = useState<any[]>([]);
+  const [addresses, setAddresses] = useState<SelectableAddress[]>([]);
   const currentNetwork = useSelector((state: RootState) =>
     selectCurrentNetwork(state)
   );
+  const walletId = useSelector(selectWalletId);
 
   useEffect(() => {
     const fetchAddresses = async () => {
+      if (walletId <= 0) {
+        setAddresses([]);
+        return;
+      }
       try {
-        const keys = await KeyService.retrieveKeys(1); // Assuming wallet_id = 1
-        setAddresses(keys);
+        const keys = await KeyService.retrieveKeys(walletId);
+        setAddresses(
+          keys.map((key) => ({
+            id: key.id,
+            address: key.address,
+          }))
+        );
       } catch (error) {
         console.error('Error fetching addresses:', error);
       }
     };
 
     fetchAddresses();
-  }, []);
+  }, [walletId]);
 
   const handleSelect = (address: string) => {
     // console.log('Address clicked:', address); // Debugging log
@@ -39,17 +55,25 @@ const AddressSelectionPopup: React.FC<AddressSelectionPopupProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
+    <div className="wallet-popup-backdrop z-[1300] p-3 sm:p-4">
       {/* Popup Container */}
-      <div className="bg-white p-6 rounded shadow-lg w-full max-w-md">
-        <h2 className="text-xl font-bold mb-4">Select an Address</h2>
+      <div
+        className="wallet-popup-panel flex w-full max-w-md flex-col overflow-hidden"
+        style={{
+          maxHeight:
+            'calc(100dvh - var(--navbar-height) - var(--safe-bottom) - 0.75rem)',
+        }}
+      >
+        <h2 className="flex flex-col items-center text-xl font-bold mb-4">
+          Select an Address
+        </h2>
         {/* Scrollable address list */}
-        <div className="max-h-64 overflow-y-auto mb-4">
+        <div className="mb-4 max-h-64 overflow-y-auto overscroll-contain touch-pan-y pr-1">
           <ul>
             {addresses.map((addr) => (
               <li key={addr.id} className="mb-2">
                 <button
-                  className="border p-2 w-full text-left break-words"
+                  className="wallet-card hover:brightness-[0.98] flex flex-col items-center p-2 w-full text-left break-words"
                   onClick={() => handleSelect(addr.address)}
                 >
                   {shortenTxHash(addr.address, PREFIX[currentNetwork].length)}
@@ -58,12 +82,14 @@ const AddressSelectionPopup: React.FC<AddressSelectionPopupProps> = ({
             ))}
           </ul>
         </div>
-        <button
-          className="bg-gray-300 font-bold text-gray-700 py-2 px-4 rounded"
-          onClick={onClose}
-        >
-          Cancel
-        </button>
+        <div className="flex flex-col">
+          <button
+            className="wallet-btn-danger"
+            onClick={onClose}
+          >
+            Back
+          </button>
+        </div>
       </div>
     </div>
   );

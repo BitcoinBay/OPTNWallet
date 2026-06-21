@@ -8,38 +8,36 @@ const FaucetView = () => {
     name: 'Testnet Faucet',
     href: 'https://tbch.googol.cash/',
     icon: <FaDonate size={24} />,
-    bgColor: 'bg-purple-500',
-    hoverColor: 'hover:bg-purple-700',
     tooltip: 'Get testnet BCH',
   };
 
   return (
-    <div className="flex flex-col items-center justify-center max-h-full p-4 h-4/5 mb-4">
-      {/* Faucet Method Card */}
-      <div className="w-full max-w-md space-y-4 mt-4">
+    <div className="flex h-full min-h-0 flex-col items-center px-4 pb-4">
+      <div className="w-full max-w-md space-y-4 overflow-y-auto pr-1">
         <a
           href={faucetMethod.href}
           target="_blank"
           rel="noopener noreferrer"
           aria-label={faucetMethod.name}
-          className={`flex items-center p-4 rounded-lg shadow-md ${faucetMethod.bgColor} ${faucetMethod.hoverColor} transition transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-${faucetMethod.bgColor.split('-')[1]}-500`}
+          title={faucetMethod.tooltip}
+          className="wallet-btn-primary flex items-center p-4 transition transform hover:scale-[1.01] focus:outline-none"
         >
           {/* Icon */}
-          <div className="mr-4 text-white">{faucetMethod.icon}</div>
+          <div className="mr-4">{faucetMethod.icon}</div>
 
           {/* Text */}
-          <div className="flex-1 text-white font-semibold text-lg">
+          <div className="flex-1 font-semibold text-lg">
             {faucetMethod.name}
           </div>
 
           {/* External Link Indicator */}
-          <div className="text-white">
+          <div>
             <FiExternalLink size={20} />
           </div>
         </a>
 
         {/* Instructions Section */}
-        <div className="p-4 rounded-lg shadow-md bg-gray-100">
+        <div className="wallet-card p-4">
           <h3 className="text-xl font-bold mb-2">Instructions</h3>
           <ol className="list-decimal ml-6 space-y-2">
             <li>Copy a BCH testnet address</li>

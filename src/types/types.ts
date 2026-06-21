@@ -7,6 +7,7 @@ export interface Token {
     capability: 'none' | 'mutable' | 'minting';
     commitment: string;
   };
+  BcmrTokenMetadata?: BcmrTokenMetadata; // NEW INCLUSION
 }
 
 // ElectrumClient related interfaces with updates
@@ -18,19 +19,21 @@ export interface UTXO {
   tx_hash: string;
   tx_pos: number;
   value: number;
+  satoshis?: bigint;
   amount?: number;
   prefix?: string; // Default to 'bchtest' for now
   token_data?: Token | null; // only used for fetching response from electrum server
   token?: Token | null; // token can be null in some cases
-  privateKey?: Uint8Array; // Optional field for private key used in P2PKH
   contractName?: string; // For contract-related UTXOs
   abi?: object[]; // ABI for contract-related UTXOs
   id?: string;
   isPaperWallet?: boolean;
-  unlocker?: any;
+  unlocker?: unknown;
   // **New Fields**
   contractFunction?: string;
-  contractFunctionInputs?: { [key: string]: any };
+  contractFunctionInputs?: Record<string, unknown>;
+  // Optional: provide constructor args at spend-time (bypass DB lookup)
+  contractConstructorArgs?: unknown[];
 }
 
 // TransactionHistoryItem remains the same
@@ -41,6 +44,23 @@ export interface TransactionHistoryItem {
   amount?: string | number;
   fee?: number; // Optional field if the transaction is from the mempool
   address?: string; // Optional field for including address
+}
+
+export interface TransactionDetailParticipant {
+  address: string;
+  amountSats?: number;
+  outputIndex?: number;
+  isWalletAddress?: boolean;
+}
+
+export interface TransactionDetails {
+  txid: string;
+  confirmations: number;
+  height?: number;
+  feeSats?: number;
+  timestamp?: string;
+  inputs: TransactionDetailParticipant[];
+  outputs: TransactionDetailParticipant[];
 }
 
 // Transaction Output
@@ -137,3 +157,92 @@ export type Address = {
   change_index: number;
   prefix: string;
 };
+
+export type QuantumrootVaultRecord = {
+  id?: number;
+  wallet_id: number;
+  account_index: number;
+  address_index: number;
+  receive_address: string;
+  quantum_lock_address: string;
+  receive_locking_bytecode: string;
+  quantum_lock_locking_bytecode: string;
+  quantum_public_key: string;
+  quantum_key_identifier: string;
+  vault_token_category: string;
+  online_quantum_signer: 0 | 1;
+  created_at: string;
+  updated_at: string;
+};
+
+// BCMR Responses
+// NEW INCLUSION BELOW
+export interface BcmrTokenMetadata {
+  name: string;
+  description: string;
+  token: {
+    category: string;
+    decimals: number;
+    symbol: string;
+  };
+  is_nft: boolean;
+  nfts?: Record<string, BcmrNftMetadata>;
+  uris: Record<string, string>;
+  extensions: BcmrExtensions;
+  lastFetch?: string | null;
+  registryUri?: string | null;
+  registryHash?: string | null;
+}
+
+export interface BcmrNftMetadata {
+  name: string;
+  description: string;
+  uris: Record<string, string>;
+  extensions: BcmrExtensions;
+}
+
+export interface BcmrIndexerResponse {
+  name: string;
+  description: string;
+  token: {
+    category: string;
+    decimals: number;
+    symbol: string;
+  };
+  is_nft: boolean;
+  type_metadata: BcmrNftMetadata;
+  uris: Record<string, string>;
+  extensions: BcmrExtensions;
+}
+
+export type BcmrExtensions = {
+  [extensionIdentifier: string]:
+    | string
+    | { [key: string]: string }
+    | { [keyA: string]: { [keyB: string]: string } };
+};
+
+export type ErrorContext = Record<string, unknown>;
+
+export type AppErrorCode =
+  | 'UNKNOWN'
+  | 'ELECTRUM'
+  | 'NETWORK'
+  | 'DATABASE'
+  | 'VALIDATION'
+  | 'WALLETCONNECT';
+
+export interface AppError {
+  code: AppErrorCode;
+  message: string;
+  ts: number;
+  cause?: unknown;
+  context?: ErrorContext;
+}
+
+export interface ContractAddressRecord {
+  address: string;
+  tokenAddress: string;
+  contractName: string;
+  abi: unknown[];
+}

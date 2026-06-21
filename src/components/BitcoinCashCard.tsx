@@ -1,11 +1,14 @@
 // src/components/BitcoinCashCard.tsx
 import React, { useState } from 'react';
 import { useSelector } from 'react-redux';
-import { RootState } from '../redux/store';
+import { RootState } from '../state/store';
 import { FaBitcoin } from 'react-icons/fa';
+import { SATSINBITCOIN } from '../utils/constants';
 
 interface Props {
   totalAmount: number; // in satoshis
+  quantumrootAmount?: number;
+  quantumrootVaultCount?: number;
 }
 
 enum DisplayMode {
@@ -13,39 +16,42 @@ enum DisplayMode {
   USD = 'USD',
 }
 
-const BitcoinCashCard: React.FC<Props> = ({ totalAmount }) => {
-  // grab the BCH→USD rate (string | null)
-  const bchRate = useSelector((state: RootState) => state.priceFeed['BCH']);
+const BitcoinCashCard: React.FC<Props> = ({
+  totalAmount,
+  quantumrootAmount = 0,
+  quantumrootVaultCount = 0,
+}) => {
+  // New state shape: key is 'BCH-USD' → { price, ts, source }
+  const bchQuote = useSelector(
+    (state: RootState) => state.priceFeed['BCH-USD']
+  );
 
   const [mode, setMode] = useState<DisplayMode>(DisplayMode.USD);
 
   // conversions
-  const totalBch = totalAmount / 1e8;
+  const totalBch = totalAmount / SATSINBITCOIN;
+  const quantumrootBch = quantumrootAmount / SATSINBITCOIN;
 
-  // parse the rate, fall back to 0 if it's null or not a finite number
-  const rateNum = parseFloat(bchRate ?? '');
-  const safeRate = Number.isFinite(rateNum) ? rateNum : 0;
-
-  // always a string like "123.45"
+  // use numeric price, fall back to 0 if undefined
+  const safeRate = bchQuote?.price ?? 0;
   const totalUsd = (totalBch * safeRate).toFixed(2);
 
-  // render
   return (
-    <div className="p-4 mb-4 border rounded-lg shadow-md bg-white flex flex-col w-full max-w-md">
+    <div className="wallet-card p-4 mb-4 flex flex-col w-full max-w-md">
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-3">
-          <FaBitcoin className="text-green-500 text-3xl" />
+          <FaBitcoin className="wallet-accent-icon text-3xl" />
           {mode === DisplayMode.BCH ? (
             <div>
               <div className="text-lg font-bold">${totalUsd} USD</div>
-              <div className="text-sm text-gray-600">
+              <div className="text-sm wallet-muted">
                 {totalBch.toFixed(8)} BCH
               </div>
             </div>
           ) : (
             <div>
               <div className="text-lg font-bold">{totalBch.toFixed(8)} BCH</div>
-              <div className="text-sm text-gray-600">${totalUsd} USD</div>
+              <div className="text-sm wallet-muted">${totalUsd} USD</div>
             </div>
           )}
         </div>
@@ -54,7 +60,7 @@ const BitcoinCashCard: React.FC<Props> = ({ totalAmount }) => {
           {mode !== DisplayMode.BCH && (
             <button
               onClick={() => setMode(DisplayMode.BCH)}
-              className="p-1 px-3 rounded text-white bg-green-500 font-bold hover:bg-green-600 transition duration-200"
+              className="wallet-btn-primary p-1 px-3"
             >
               BCH
             </button>
@@ -62,13 +68,20 @@ const BitcoinCashCard: React.FC<Props> = ({ totalAmount }) => {
           {mode !== DisplayMode.USD && (
             <button
               onClick={() => setMode(DisplayMode.USD)}
-              className="p-1 px-3 rounded text-white bg-gray-500 font-bold hover:bg-gray-600 transition duration-200"
+              className="wallet-btn-secondary p-1 px-3"
             >
               USD
             </button>
           )}
         </div>
       </div>
+
+      {quantumrootAmount > 0 && (
+        <div className="mt-3 text-xs wallet-muted">
+          Includes {quantumrootBch.toFixed(8)} BCH across {quantumrootVaultCount}{' '}
+          Quantumroot vault{quantumrootVaultCount === 1 ? '' : 's'}.
+        </div>
+      )}
     </div>
   );
 };

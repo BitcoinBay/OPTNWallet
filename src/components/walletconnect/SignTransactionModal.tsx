@@ -1,22 +1,51 @@
 // inside src/components/walletconnect/SignTransactionModal.tsx
 
+import { useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { RootState, AppDispatch } from '../../redux/store';
+import { RootState, AppDispatch } from '../../state/store';
 import {
   respondWithTxSignature,
   clearPendingSignTx,
   respondWithTxError,
-} from '../../redux/walletconnectSlice';
+  syncWalletConnectSessions,
+} from '../../state/slices/walletconnectSlice';
+import { enqueueNotification } from '../../state/slices/notificationsSlice';
 import { binToHex, lockingBytecodeToCashAddress } from '@bitauth/libauth';
+import { SATSINBITCOIN } from '../../utils/constants';
+import { ensureUint8Array, parseSatoshis } from '../../utils/binary';
+import { selectWalletId } from '../../state/slices/walletSlice';
+import useOutboundTransactions from '../../hooks/useOutboundTransactions';
+import { shortenAddress } from '../../utils/shortenHash';
+import WalletTooltip from '../ui/WalletTooltip';
+import { FiChevronDown, FiChevronUp } from 'react-icons/fi';
+import { normalizeExternalUrl } from '../../utils/externalUrl';
+import { toErrorMessage } from '../../utils/errorHandling';
+
+function isStaleWalletConnectError(error: unknown): boolean {
+  const message = toErrorMessage(error).toLowerCase();
+  return (
+    message.includes('session') &&
+    (message.includes('missing') ||
+      message.includes('deleted') ||
+      message.includes('expired') ||
+      message.includes('disconnected') ||
+      message.includes('not found'))
+  );
+}
 
 export function SignTransactionModal() {
   const dispatch = useDispatch<AppDispatch>();
+  const walletId = useSelector(selectWalletId);
   const signTxRequest = useSelector(
     (state: RootState) => state.walletconnect.pendingSignTx
   );
   const activeSessions = useSelector(
     (state: RootState) => state.walletconnect.activeSessions
   );
+  const { hasUnresolved } = useOutboundTransactions(walletId);
+
+  const [inputsExpanded, setInputsExpanded] = useState(false);
+  const [outputsExpanded, setOutputsExpanded] = useState(false);
 
   if (!signTxRequest) return null;
 
@@ -29,6 +58,21 @@ export function SignTransactionModal() {
   const dappMetadata = activeSessions?.[topic]?.peer?.metadata;
   const inputs = tx?.inputs || [];
   const outputs = tx?.outputs || [];
+
+  type TxAmountCarrier = { valueSatoshis: unknown };
+  type TxToken = {
+    category: unknown;
+    amount?: unknown;
+    nft?: { capability?: string; commitment?: unknown };
+  };
+  type TxOutput = TxAmountCarrier & {
+    lockingBytecode: unknown;
+    token?: TxToken;
+  };
+  type TxInputSource = TxAmountCarrier & {
+    outpointTransactionHash: unknown;
+    outpointIndex: number;
+  };
 
   function parsePushData(bytecode: Uint8Array): string[] {
     const result: string[] = [];
@@ -45,34 +89,8 @@ export function SignTransactionModal() {
     return result;
   }
 
-  function ensureUint8Array(input: any): Uint8Array {
-    if (input instanceof Uint8Array) return input;
-    if (typeof input === 'string' && input.startsWith('<Uint8Array: 0x')) {
-      const hex = input.slice('<Uint8Array: 0x'.length, -1);
-      const bytes = new Uint8Array(hex.length / 2);
-      for (let i = 0; i < hex.length; i += 2) {
-        bytes[i / 2] = parseInt(hex.slice(i, i + 2), 16);
-      }
-      return bytes;
-    }
-    return new Uint8Array();
-  }
-
-  function parseSatoshis(value: any): bigint {
-    try {
-      if (typeof value === 'bigint') return value;
-      if (typeof value === 'string' && value.startsWith('<bigint:')) {
-        const match = value.match(/^<bigint:\s*(\d+)n>$/);
-        if (match) return BigInt(match[1]);
-      }
-      return BigInt(value);
-    } catch {
-      return 0n;
-    }
-  }
-
   function toCashAddress(
-    bytecode: any,
+    bytecode: unknown,
     prefix: 'bitcoincash' | 'bchtest' | 'bchreg' = 'bitcoincash'
   ): string {
     try {
@@ -86,150 +104,290 @@ export function SignTransactionModal() {
     }
   }
 
-  const totalInput = sourceOutputs.reduce(
-    (sum: bigint, o: any) => sum + parseSatoshis(o.valueSatoshis),
+  const totalInput: bigint = (sourceOutputs as TxInputSource[]).reduce(
+    (sum: bigint, o) => sum + parseSatoshis(o.valueSatoshis),
     0n
   );
-  const totalOutput = outputs.reduce(
-    (sum: bigint, o: any) => sum + parseSatoshis(o.valueSatoshis),
+  const totalOutput: bigint = (outputs as TxOutput[]).reduce(
+    (sum: bigint, o) => sum + parseSatoshis(o.valueSatoshis),
     0n
   );
   const fee = totalInput - totalOutput;
+  const broadcastLocked = shouldBroadcast && hasUnresolved;
+  const dappUrl = dappMetadata?.url ? normalizeExternalUrl(dappMetadata.url) : null;
 
   const handleSign = async () => {
-    await dispatch(respondWithTxSignature(signTxRequest));
-    dispatch(clearPendingSignTx());
+    if (broadcastLocked) return;
+    try {
+      await dispatch(respondWithTxSignature(signTxRequest)).unwrap();
+      dispatch(
+        enqueueNotification({
+          id: `walletconnect:tx:signed:${topic}:${signTxRequest.id}`,
+          kind: 'walletconnect',
+          title: 'WalletConnect transaction approved',
+          body: dappMetadata?.name
+            ? `Sent the transaction response to ${dappMetadata.name}.`
+            : 'Sent the WalletConnect transaction response.',
+          createdAt: Date.now(),
+        })
+      );
+      dispatch(clearPendingSignTx());
+    } catch (error) {
+      console.error('[WalletConnect] Failed to sign transaction request', error);
+      if (isStaleWalletConnectError(error)) {
+        void dispatch(syncWalletConnectSessions());
+        dispatch(clearPendingSignTx());
+        dispatch(
+          enqueueNotification({
+            id: `walletconnect:tx:stale:${topic}:${signTxRequest.id}`,
+            kind: 'walletconnect',
+            title: 'WalletConnect session disconnected',
+            body: 'The dApp disconnected before the transaction response could be delivered.',
+            createdAt: Date.now(),
+          })
+        );
+        return;
+      }
+      dispatch(
+        enqueueNotification({
+          id: `walletconnect:tx:sign-error:${topic}:${signTxRequest.id}`,
+          kind: 'walletconnect',
+          title: 'WalletConnect transaction failed',
+          body: `Failed to sign WalletConnect transaction request: ${toErrorMessage(error)}`,
+          createdAt: Date.now(),
+        })
+      );
+    }
   };
 
   const handleCancel = async () => {
-    await dispatch(respondWithTxError(signTxRequest));
-    dispatch(clearPendingSignTx());
+    try {
+      await dispatch(respondWithTxError(signTxRequest)).unwrap();
+      dispatch(
+        enqueueNotification({
+          id: `walletconnect:tx:rejected:${topic}:${signTxRequest.id}`,
+          kind: 'walletconnect',
+          title: 'WalletConnect transaction rejected',
+          body: 'Sent the rejection response to the dApp.',
+          createdAt: Date.now(),
+        })
+      );
+      dispatch(clearPendingSignTx());
+    } catch (error) {
+      console.error('[WalletConnect] Failed to reject transaction request', error);
+      if (isStaleWalletConnectError(error)) {
+        void dispatch(syncWalletConnectSessions());
+        dispatch(clearPendingSignTx());
+        dispatch(
+          enqueueNotification({
+            id: `walletconnect:tx:reject-stale:${topic}:${signTxRequest.id}`,
+            kind: 'walletconnect',
+            title: 'WalletConnect session disconnected',
+            body: 'The dApp disconnected before the rejection response could be delivered.',
+            createdAt: Date.now(),
+          })
+        );
+        return;
+      }
+      dispatch(
+        enqueueNotification({
+          id: `walletconnect:tx:reject-error:${topic}:${signTxRequest.id}`,
+          kind: 'walletconnect',
+          title: 'WalletConnect rejection failed',
+          body: `Failed to reject WalletConnect transaction request: ${toErrorMessage(error)}`,
+          createdAt: Date.now(),
+        })
+      );
+    }
   };
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-70 z-50">
-      <div className="bg-white rounded-lg shadow-lg max-w-2xl w-full p-6 flex flex-col space-y-4">
+    <div className="wallet-popup-backdrop">
+      <div className="wallet-popup-panel max-w-2xl w-full flex flex-col space-y-4">
         <h3 className="text-xl font-bold text-center">
           Sign Transaction Request
         </h3>
 
         <div className="overflow-y-auto max-h-[60vh] space-y-4 pr-1">
           {dappMetadata && (
-            <div className="text-sm text-gray-600">
+            <div className="text-sm wallet-muted">
               <div>
                 <strong>DApp Name:</strong> {dappMetadata.name}
               </div>
               <div>
                 <strong>Domain:</strong>{' '}
-                <a
-                  href={dappMetadata.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-500 underline"
-                >
-                  {dappMetadata.url}
-                </a>
+                {dappUrl ? (
+                  <a
+                    href={dappUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="wallet-link underline"
+                  >
+                    {dappMetadata.url}
+                  </a>
+                ) : (
+                  <span className="wallet-muted break-all">
+                    {dappMetadata.url}
+                  </span>
+                )}
               </div>
             </div>
           )}
 
           {userPrompt && (
-            <p className="text-sm bg-yellow-100 border border-yellow-300 rounded p-2 text-yellow-900">
+            <p className="text-sm wallet-surface-strong border border-[var(--wallet-border)] rounded p-2 wallet-text-strong">
               <strong>Prompt:</strong> {userPrompt}
             </p>
           )}
 
-          {inputs.map((_, i: number) => {
-            const source = sourceOutputs[i];
-            const txid = binToHex(
-              ensureUint8Array(source.outpointTransactionHash)
-            );
-            const value = parseSatoshis(source.valueSatoshis).toString();
-            return (
-              <div key={i} className="ml-2">
-                <div>
-                  TXID: <span className="font-mono break-all">{txid}</span>
-                </div>
-                <div>Index: {source.outpointIndex}</div>
-                <div>Value: {value} sats</div>
-              </div>
-            );
-          })}
+          {broadcastLocked && (
+            <div className="text-sm wallet-surface-strong border border-[var(--wallet-border)] rounded p-3 wallet-text-strong">
+              Another outgoing transaction is still syncing. To avoid duplicates
+              while you are offline, this wallet will only broadcast one
+              unresolved transaction at a time.
+            </div>
+          )}
 
-          {outputs.map((output: any, i: number) => {
-            const value = parseSatoshis(output.valueSatoshis).toString();
-            const lockingBytecode = ensureUint8Array(output.lockingBytecode);
-            const isOpReturn = lockingBytecode[0] === 0x6a;
-            const token = output.token;
-
-            if (isOpReturn) {
-              const parsed = parsePushData(lockingBytecode);
-              return (
-                <div key={i} className="ml-2 space-y-1 border-b pb-2 text-sm">
-                  <strong>OP_RETURN Output</strong>
-                  {parsed.map((data, j) => (
-                    <div
-                      key={j}
-                      className="font-mono text-gray-600 break-words"
-                    >
-                      {data}
-                    </div>
-                  ))}
-                </div>
-              );
-            }
-
-            const address = toCashAddress(lockingBytecode, 'bitcoincash');
-            return (
-              <div key={i} className="ml-2 border-b pb-2 space-y-1">
-                <div>
-                  Address:{' '}
-                  <span className="font-mono text-blue-600 break-all">
-                    {address}
-                  </span>
-                </div>
-                <div>Value: {value} sats</div>
-                {token && (
-                  <div className="text-sm bg-green-50 border border-green-200 rounded p-2 space-y-1">
-                    <div>
-                      <strong>Token Category:</strong>{' '}
-                      <span className="font-mono break-all">
-                        {binToHex(ensureUint8Array(token.category))}
-                      </span>
-                    </div>
-                    {token.amount && (
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => setInputsExpanded(!inputsExpanded)}
+              className="flex items-center gap-2 text-sm font-semibold wallet-text-strong"
+            >
+              {inputsExpanded ? <FiChevronUp /> : <FiChevronDown />}
+              Inputs ({inputs.length})
+            </button>
+            {inputsExpanded && (
+              <div className="space-y-1">
+                {inputs.map((_, i: number) => {
+                  const source = sourceOutputs[i];
+                  const txid = binToHex(
+                    ensureUint8Array(source.outpointTransactionHash)
+                  );
+                  const value = parseSatoshis(source.valueSatoshis);
+                  return (
+                    <div key={i} className="ml-2">
                       <div>
-                        <strong>Fungible Amount:</strong>{' '}
-                        {parseSatoshis(token.amount).toString()}
+                        TXID:{' '}
+                        <span className="font-mono break-all">{txid}</span>
                       </div>
-                    )}
-                    {token.nft && (
-                      <>
-                        <div>
-                          <strong>NFT Capability:</strong>{' '}
-                          {token.nft.capability}
-                        </div>
-                        {token.nft.commitment && (
+                      <div>Index: {source.outpointIndex}</div>
+                      <div>{Number(value) / SATSINBITCOIN} BCH</div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => setOutputsExpanded(!outputsExpanded)}
+              className="flex items-center gap-2 text-sm font-semibold wallet-text-strong"
+            >
+              {outputsExpanded ? <FiChevronUp /> : <FiChevronDown />}
+              Outputs ({outputs.length})
+            </button>
+            {outputsExpanded && (
+              <div className="space-y-1">
+                {(outputs as TxOutput[]).map((output, i: number) => {
+                  const value = parseSatoshis(output.valueSatoshis);
+                  const lockingBytecode = ensureUint8Array(
+                    output.lockingBytecode
+                  );
+                  const isOpReturn = lockingBytecode[0] === 0x6a;
+                  const token = output.token;
+
+                  if (isOpReturn) {
+                    const parsed = parsePushData(lockingBytecode);
+                    return (
+                      <div
+                        key={i}
+                        className="ml-2 space-y-1 border-b border-[var(--wallet-border)] pb-2 text-sm"
+                      >
+                        <strong>OP_RETURN Output</strong>
+                        {parsed.map((data, j) => (
+                          <div
+                            key={j}
+                            className="font-mono wallet-muted break-words"
+                          >
+                            {data}
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  }
+
+                  const address = toCashAddress(lockingBytecode, 'bitcoincash');
+                  return (
+                    <div
+                      key={i}
+                      className="ml-2 border-b border-[var(--wallet-border)] pb-2 space-y-1"
+                    >
+                      <div>
+                        Address:{' '}
+                        <span
+                          className="font-mono wallet-link break-all cursor-pointer"
+                          data-tooltip-id={`address-tooltip-${i}`}
+                          data-tooltip-content={address}
+                        >
+                          {shortenAddress(address)}
+                        </span>
+                        <WalletTooltip
+                          id={`address-tooltip-${i}`}
+                          place="top"
+                          clickable={true}
+                          content={address}
+                        />
+                      </div>
+                      <div>{Number(value) / SATSINBITCOIN} BCH</div>
+                      {token && (
+                        <div className="text-sm wallet-surface-strong border border-[var(--wallet-border)] rounded p-2 space-y-1">
                           <div>
-                            <strong>NFT Commitment:</strong>{' '}
+                            <strong>Token Category:</strong>{' '}
                             <span className="font-mono break-all">
-                              {binToHex(ensureUint8Array(token.nft.commitment))}
+                              {binToHex(ensureUint8Array(token.category))}
                             </span>
                           </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                )}
+                          {token.amount && (
+                            <div>
+                              <strong>Fungible Amount:</strong>{' '}
+                              {parseSatoshis(token.amount).toString()}
+                            </div>
+                          )}
+                          {token.nft && (
+                            <>
+                              <div>
+                                <strong>NFT Capability:</strong>{' '}
+                                {token.nft.capability}
+                              </div>
+                              {token.nft.commitment && (
+                                <div>
+                                  <strong>NFT Commitment:</strong>{' '}
+                                  <span className="font-mono break-all">
+                                    {binToHex(
+                                      ensureUint8Array(token.nft.commitment)
+                                    )}
+                                  </span>
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
+            )}
+          </div>
 
-          <div className="text-sm border-t pt-2">
-            <div>Total Input: {totalInput.toString()} sats</div>
-            <div>Total Output: {totalOutput.toString()} sats</div>
+          <div className="text-sm border-t border-[var(--wallet-border)] pt-2">
+            <div>Total Input: {Number(totalInput) / SATSINBITCOIN} BCH</div>
+            <div>Total Output: {Number(totalOutput) / SATSINBITCOIN} BCH</div>
             <div className="font-semibold">
-              Estimated Fee: {fee.toString()} sats
+              Estimated Fee: {Number(fee) / SATSINBITCOIN} BCH
             </div>
             <div>Broadcast: {shouldBroadcast ? 'Yes' : 'No'}</div>
           </div>
@@ -238,14 +396,17 @@ export function SignTransactionModal() {
         <div className="flex justify-around pt-2">
           <button
             onClick={handleSign}
-            className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded"
+            className="wallet-btn-primary"
+            disabled={broadcastLocked}
+            title={
+              broadcastLocked
+                ? 'Wait for the previous outgoing transaction to sync first'
+                : undefined
+            }
           >
-            Sign
+            {broadcastLocked && shouldBroadcast ? 'Waiting for sync' : 'Sign'}
           </button>
-          <button
-            onClick={handleCancel}
-            className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded"
-          >
+          <button onClick={handleCancel} className="wallet-btn-danger">
             Cancel
           </button>
         </div>

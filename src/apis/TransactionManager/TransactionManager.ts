@@ -1,9 +1,8 @@
 // src/apis/TransactionManager/TransactionManager.ts
 
-import { store } from '../../redux/store';
-import { addTxOutput } from '../../redux/transactionBuilderSlice';
+import { store } from '../../state/store';
+import { addTxOutput } from '../../state/slices/transactionBuilderSlice';
 import ElectrumService from '../../services/ElectrumService';
-import KeyService from '../../services/KeyService';
 import {
   TransactionHistoryItem,
   TransactionOutput,
@@ -11,43 +10,48 @@ import {
 } from '../../types/types';
 import DatabaseService from '../DatabaseManager/DatabaseService';
 import TransactionBuilderHelper from './TransactionBuilderHelper';
+import { DUST, TOKEN_OUTPUT_SATS } from '../../utils/constants';
+import { logError, logWarn, toErrorMessage } from '../../utils/errorHandling';
+import { classifyBroadcastFailure } from '../../utils/broadcastErrors';
+import { toTokenAwareCashAddress } from '../../utils/cashAddress';
+import { binToHex, hexToBin } from '../../utils/hex';
+import { sha256 } from '../../utils/hash';
+import {
+  estimateAddP2PKHOutputBytes,
+  formatMinRelayError,
+  hasExplicitManualChangeOutput,
+  txBytesFromHex,
+} from './feePolicy';
+import OutboundTransactionTracker from '../../services/OutboundTransactionTracker';
+
+function deriveTxidFromRawTx(rawTX: string): string | null {
+  try {
+    const txBytes = hexToBin(rawTX);
+    return binToHex(sha256.hash(sha256.hash(txBytes)).reverse());
+  } catch {
+    return null;
+  }
+}
 
 export default function TransactionManager() {
   const dbService = DatabaseService();
 
-  /**
-   * Fetches transaction history from the Electrum service and stores it in the database.
-   *
-   * @param walletId - The ID of the wallet.
-   * @param address - The address to fetch transaction history for.
-   * @returns An array of TransactionHistoryItem.
-   */
-  async function fetchAndStoreTransactionHistory(
+  function storeTransactionHistory(
     walletId: number,
-    address: string
-  ): Promise<TransactionHistoryItem[]> {
+    address: string,
+    history: TransactionHistoryItem[]
+  ): TransactionHistoryItem[] {
     const db = dbService.getDatabase();
     if (!db) {
       throw new Error('Could not get database');
     }
 
-    let history: TransactionHistoryItem[] = [];
+    let transactionOpened = false;
 
     try {
-      // Fetch transaction history using Electrum service
-      history = await ElectrumService.getTransactionHistory(address);
-
-      // Validate the fetched history
-      if (!Array.isArray(history)) {
-        throw new Error('Invalid transaction history format');
-      }
-
-      const timestamp = new Date().toISOString();
-
-      // Begin a database transaction for batch operations
       db.exec('BEGIN TRANSACTION');
+      transactionOpened = true;
 
-      // Prepare the upsert statement using the UNIQUE constraint
       const upsertStmt = db.prepare(`
         INSERT INTO transactions (wallet_id, tx_hash, height, timestamp, amount)
         VALUES (?, ?, ?, ?, 0)
@@ -56,79 +60,184 @@ export default function TransactionManager() {
           timestamp = excluded.timestamp
       `);
 
-      // Iterate through each transaction and perform upsert
       for (const tx of history) {
-        upsertStmt.run([walletId, tx.tx_hash, tx.height, timestamp]);
+        upsertStmt.run([walletId, tx.tx_hash, tx.height, tx.timestamp ?? '']);
       }
 
-      // Finalize the prepared statement
       upsertStmt.free();
-
-      // Commit the transaction after successful operations
       db.exec('COMMIT');
-
-      // console.log(
-      //   `Fetched and stored transaction history for address ${address}`
-      // );
+      transactionOpened = false;
     } catch (error) {
-      // Rollback the transaction in case of any errors
-      db.exec('ROLLBACK');
-      console.error(
-        `Failed to fetch and store transaction history for address ${address}:`,
-        error
-      );
+      if (transactionOpened) {
+        db.exec('ROLLBACK');
+      }
+      logError('TransactionManager.fetchAndStoreTransactionHistory', error, {
+        address,
+        walletId,
+      });
     }
 
     return history;
   }
 
-  /**
-   * Sends a raw transaction to the network using the TransactionBuilderHelper.
-   *
-   * @param rawTX - The raw transaction hex string.
-   * @returns An object containing the transaction ID and any error message.
-   */
-  async function sendTransaction(rawTX: string) {
+  async function fetchAndStoreTransactionHistory(
+    walletId: number,
+    address: string
+  ): Promise<TransactionHistoryItem[]> {
+    const history = await ElectrumService.getTransactionHistory(address);
+    if (!Array.isArray(history)) {
+      logWarn('TransactionManager.fetchAndStoreTransactionHistory', 'Skipping non-array transaction history response', {
+        address,
+        walletId,
+      });
+      return [];
+    }
+
+    return storeTransactionHistory(walletId, address, history);
+  }
+
+  async function fetchAndStoreTransactionHistories(
+    walletId: number,
+    addresses: string[]
+  ): Promise<Record<string, TransactionHistoryItem[] | undefined>> {
+    const uniqueAddresses = Array.from(new Set(addresses.filter(Boolean)));
+    const histories = await ElectrumService.getTransactionHistoryMany(
+      uniqueAddresses
+    );
+    const stored: Record<string, TransactionHistoryItem[] | undefined> = {};
+
+    for (const address of uniqueAddresses) {
+      const history = histories[address];
+      if (!Array.isArray(history)) {
+        if (history == null) {
+          stored[address] = undefined;
+          continue;
+        }
+
+        logWarn(
+          'TransactionManager.fetchAndStoreTransactionHistories',
+          'Skipping non-array transaction history response',
+          {
+            address,
+            walletId,
+          }
+        );
+        continue;
+      }
+
+      try {
+        stored[address] = storeTransactionHistory(walletId, address, history);
+      } catch (error) {
+        logError('TransactionManager.fetchAndStoreTransactionHistories', error, {
+          address,
+          walletId,
+        });
+      }
+    }
+
+    return stored;
+  }
+
+  async function sendTransaction(rawTX: string): Promise<{
+    txid: string | null;
+    errorMessage: string | null;
+    broadcastState?: 'broadcasted' | 'submitted';
+  }> {
     const txBuilder = TransactionBuilderHelper();
+    const derivedTxid = deriveTxidFromRawTx(rawTX);
+    const walletId = store.getState().wallet_id.currentWalletId ?? null;
+    const priorAttempt = derivedTxid
+      ? await OutboundTransactionTracker.getByTxid(derivedTxid)
+      : null;
+
+    if (
+      priorAttempt &&
+      (priorAttempt.state === 'broadcasting' ||
+        priorAttempt.state === 'broadcasted')
+    ) {
+      return {
+        txid: priorAttempt.txid,
+        errorMessage: null,
+        broadcastState:
+          priorAttempt.state === 'broadcasted' ? 'broadcasted' : 'submitted',
+      };
+    }
+
     let txid: string | null = null;
     let errorMessage: string | null = null;
+
+    await OutboundTransactionTracker.trackAttempt({
+      rawTx: rawTX,
+      walletId,
+      source: 'wallet',
+    });
+
+    if (derivedTxid && priorAttempt?.state === 'submitted') {
+      await OutboundTransactionTracker.markState(
+        derivedTxid,
+        'broadcasting',
+        priorAttempt.lastError ?? null
+      );
+    }
+
     try {
       txid = await txBuilder.sendTransaction(rawTX);
-      // console.log('Sent Transaction:', txid);
-    } catch (error: any) {
-      console.error('Error sending transaction:', error);
-      errorMessage = 'Error sending transaction: ' + error.message;
+      if (derivedTxid) {
+        await OutboundTransactionTracker.markState(derivedTxid, 'broadcasted');
+      }
+    } catch (error: unknown) {
+      logError('TransactionManager.sendTransaction', error);
+      const message = toErrorMessage(error);
+      const classified = classifyBroadcastFailure(message);
+      if (
+        derivedTxid &&
+        (classified.ambiguous ||
+          /already in mempool|already have transaction|txn-already-known|already known/i.test(
+            message
+          ))
+      ) {
+        await OutboundTransactionTracker.markState(
+          derivedTxid,
+          /already in mempool|already have transaction|txn-already-known|already known/i.test(
+            message
+          )
+            ? 'broadcasted'
+            : 'submitted',
+          message
+        );
+        txid = derivedTxid;
+      } else {
+        if (derivedTxid) {
+          await OutboundTransactionTracker.remove(derivedTxid);
+        }
+        errorMessage = classified.userMessage;
+      }
     }
     return {
       txid,
       errorMessage,
+      broadcastState:
+        txid && !errorMessage
+          ? derivedTxid &&
+            (await OutboundTransactionTracker.getByTxid(derivedTxid))?.state ===
+              'submitted'
+            ? 'submitted'
+            : 'broadcasted'
+          : undefined,
     };
   }
 
-  /**
-   * Adds a new output to the transaction builder.
-   *
-   * @param recipientAddress - The address of the transaction recipient.
-   * @param transferAmount - The amount to transfer in satoshis.
-   * @param tokenAmount - The amount of tokens to transfer.
-   * @param selectedTokenCategory - The category of the selected token **or** the genesis UTXO tx_hash.
-   * @param selectedUtxos - The selected UTXOs for the transaction.
-   * @param addresses - An array of addresses with optional token addresses.
-   * @param nftCapability - (For genesis only) capability if creating an NFT
-   * @param nftCommitment - (For genesis only) commitment if creating an NFT
-   * @returns The newly created TransactionOutput or undefined if inputs are invalid.
-   */
   function addOutput(
     recipientAddress: string,
     transferAmount: number,
-    tokenAmount: number,
+    tokenAmount: number | bigint,
     selectedTokenCategory: string = '',
     selectedUtxos: UTXO[] = [],
     addresses: { address: string; tokenAddress?: string }[] = [],
-    nftCapability?: 'none' | 'mutable' | 'minting',
-    nftCommitment?: string
+    nftCapability?: undefined | 'none' | 'mutable' | 'minting',
+    nftCommitment?: string,
+    dispatchToStore = true
   ): TransactionOutput | undefined {
-    // Validate inputs
     if (!recipientAddress || (!transferAmount && !tokenAmount)) {
       console.warn(
         'addOutput: Invalid inputs. recipientAddress and at least one amount required.'
@@ -136,21 +245,16 @@ export default function TransactionManager() {
       return undefined;
     }
 
-    // Initialize a new transaction output (regular by default)
     const newOutput: TransactionOutput = {
       recipientAddress,
       amount: transferAmount || 0,
     };
 
-    // If user selected a token category or a genesis tx_hash
     if (selectedTokenCategory) {
-      // 1) Attempt to find an existing token UTXO if user is transferring an existing token
       const existingTokenUTXO = selectedUtxos.find(
         (utxo) => utxo.token && utxo.token.category === selectedTokenCategory
       );
 
-      // 2) Or find a 'genesis' UTXO if user is creating a new CashToken:
-      //    specifically a UTXO with tx_pos === 0, no .token, and matching tx_hash
       const genesisUtxo = selectedUtxos.find(
         (utxo) =>
           !utxo.token &&
@@ -159,216 +263,340 @@ export default function TransactionManager() {
       );
 
       if (existingTokenUTXO && existingTokenUTXO.token) {
-        // ------- TRANSFERRING EXISTING TOKEN -------
-        // Start by copying the category
         newOutput.token = {
-          amount: tokenAmount, // For fungible tokens
+          amount: tokenAmount,
           category: existingTokenUTXO.token.category,
         };
 
-        // If the existing token is actually an NFT (utxo.token.nft is present),
-        // replicate its capability & commitment. Also ensure amount is undefined.
         if (existingTokenUTXO.token.nft) {
-          delete newOutput.token.amount; // Non-fungible => remove fungible amount
+          newOutput.token.amount = 0;
           newOutput.token.nft = {
             capability: existingTokenUTXO.token.nft.capability,
             commitment: existingTokenUTXO.token.nft.commitment,
           };
         }
 
-        // Optionally redirect recipient to a token address if available
         const tokenAddress = addresses.find(
           (addr) => addr.address === recipientAddress
         )?.tokenAddress;
         if (tokenAddress) {
           newOutput.recipientAddress = tokenAddress;
+        } else {
+          newOutput.recipientAddress = toTokenAwareCashAddress(recipientAddress);
         }
 
+        if (newOutput.amount < TOKEN_OUTPUT_SATS) {
+          newOutput.amount = TOKEN_OUTPUT_SATS;
+        }
       } else if (genesisUtxo) {
-        // ------- CREATING A NEW CASHTOKEN (GENESIS) -------
+        const isNftGenesis = nftCapability && nftCommitment !== undefined;
+
         newOutput.token = {
-          // If NFT data is present, enforce 0 fungible token amount
-          amount: nftCapability && nftCommitment !== undefined ? 0 : tokenAmount,
+          amount: isNftGenesis ? 0 : tokenAmount,
           category: genesisUtxo.tx_hash,
         };
 
-        if (nftCapability && nftCommitment !== undefined) {
+        if (isNftGenesis) {
           newOutput.token.nft = {
             capability: nftCapability,
-            commitment: nftCommitment,
+            commitment: nftCommitment!,
           };
         }
 
-        // Optionally redirect to special token address if it exists
         const tokenAddress = addresses.find(
           (addr) => addr.address === recipientAddress
         )?.tokenAddress;
         if (tokenAddress) {
           newOutput.recipientAddress = tokenAddress;
+        } else {
+          newOutput.recipientAddress = toTokenAwareCashAddress(recipientAddress);
         }
 
+        if (newOutput.amount < TOKEN_OUTPUT_SATS) {
+          newOutput.amount = TOKEN_OUTPUT_SATS;
+        }
       } else {
-        // Fallback: no existing token or valid genesis UTXO found
         console.warn(
           'addOutput: No matching token UTXO or valid genesis UTXO found for the selected category.'
         );
       }
     }
 
-    // Dispatch this new output to Redux
-    store.dispatch(addTxOutput(newOutput));
-    // console.log('[TransactionManager.addOutput] New Output:', newOutput);
+    if (dispatchToStore) {
+      store.dispatch(addTxOutput(newOutput));
+    }
     return newOutput;
   }
 
+  // ----------------------------
+  // Helpers (local, no new files)
+  // ----------------------------
+
+  function utxoSats(utxo: UTXO): bigint {
+    const src = utxo as UTXO & { satoshis?: unknown };
+    const raw: unknown = src.satoshis ?? src.value ?? src.amount ?? 0;
+
+    if (typeof raw === 'bigint') return raw;
+    if (typeof raw === 'number') {
+      return BigInt(Number.isFinite(raw) ? Math.trunc(raw) : 0);
+    }
+    if (typeof raw === 'string') {
+      try {
+        return BigInt(raw.trim() || '0');
+      } catch {
+        return 0n;
+      }
+    }
+    return 0n;
+  }
+
+  function outputSats(o: TransactionOutput): bigint {
+    if ('opReturn' in o && o.opReturn !== undefined) return 0n;
+
+    const hasToken = !!o.token;
+    const raw = o.amount;
+    let sats = 0n;
+
+    if (typeof raw === 'bigint') sats = raw;
+    else if (typeof raw === 'number')
+      sats = BigInt(Number.isFinite(raw) ? Math.trunc(raw) : 0);
+
+    // match TransactionBuilderHelper.prepareTransactionOutputs
+    if (hasToken) {
+      const minTokenSats = BigInt(TOKEN_OUTPUT_SATS);
+      if (sats < minTokenSats) sats = minTokenSats;
+    }
+
+    return sats;
+  }
+
+  function sumInputs(selectedUtxos: UTXO[]): bigint {
+    return selectedUtxos.reduce((sum, u) => sum + utxoSats(u), 0n);
+  }
+
+  function sumOutputs(outputs: TransactionOutput[]): bigint {
+    return outputs.reduce((sum, o) => sum + outputSats(o), 0n);
+  }
+
+  function normalizeTokenOutputs(
+    outputs: TransactionOutput[]
+  ): TransactionOutput[] {
+    return outputs.map((output): TransactionOutput => {
+      if ('opReturn' in output && output.opReturn !== undefined) {
+        return output;
+      }
+      if (!output.token) return output;
+      return {
+        recipientAddress: toTokenAwareCashAddress(output.recipientAddress),
+        amount: output.amount,
+        token: output.token,
+      };
+    });
+  }
+
   /**
-   * Builds a transaction using the provided outputs, contract function inputs, change address, and selected UTXOs.
+   * Builds a transaction using the provided outputs, change address, and selected UTXOs.
    *
-   * @param outputs - An array of TransactionOutput objects.
-   * @param contractFunctionInputs - The inputs for the contract function.
-   * @param changeAddress - The address to send any remaining funds.
-   * @param selectedUtxos - An array of selected UTXOs for the transaction.
-   * @returns An object containing bytecode size, final transaction, final outputs, and any error message.
+   * Baseline rules (Advanced Builder):
+   * - Fee policy: 1 sat/byte
+   * - ALWAYS attempt to add a separate change output if changeAddress is provided.
+   * - Only skip auto-change if an output is explicitly marked as manual change
+   *   via (o as any)._manualChange === true (not by address equality).
    */
   const buildTransaction = async (
     outputs: TransactionOutput[],
-    contractFunctionInputs: { [key: string]: any } | null,
+    _contractFunctionInputs: Record<string, unknown> | null,
     changeAddress: string,
-    selectedUtxos: UTXO[]
+    selectedUtxos: UTXO[],
+    allowImplicitFungibleTokenBurn = false
   ): Promise<{
     bytecodeSize: number;
     finalTransaction: string;
     finalOutputs: TransactionOutput[] | null;
     errorMsg: string;
   }> => {
-    // console.log(
-    //   `TransactionManager: txInputs: ${JSON.stringify(selectedUtxos, null, 2)}`
-    // );
-    // console.log(
-    //   `TransactionManager: txOutputs: ${JSON.stringify(outputs, null, 2)}`
-    // );
-    console.warn(`Unused Params: ${JSON.stringify(contractFunctionInputs)}`);
-    // console.log('TransactionManager: Change Address:', changeAddress);
-    // console.log('TransactionManager: Selected UTXOs:', selectedUtxos);
-    // Fetch the latest state
-    // const state = store.getState();
-    // const selectedFunction = state.contract.selectedFunction;
-    const txBuilder = TransactionBuilderHelper();
+    const txBuilder = TransactionBuilderHelper({
+      allowImplicitFungibleTokenBurn,
+    });
     const returnObj = {
       bytecodeSize: 0,
       finalTransaction: '',
-      finalOutputs: [] as TransactionOutput[],
+      finalOutputs: null as TransactionOutput[] | null,
       errorMsg: '',
     };
 
-    // Calculate total input and output amounts
-    const totalUtxoAmount = selectedUtxos.reduce(
-      (sum, utxo) => sum + BigInt(utxo.amount),
-      BigInt(0)
-    );
-    // console.log(`Total UTXO Amount: ${totalUtxoAmount}`);
-
-    const totalOutputAmount = outputs.reduce(
-      (sum, output) => sum + BigInt(output.amount),
-      BigInt(0)
-    );
-    // console.log(`Total Output Amount: ${totalOutputAmount}`);
+    // track intended outputs so we can return them even on failure (debug UX)
+    let intendedOutputs: TransactionOutput[] = normalizeTokenOutputs(outputs);
 
     try {
-      // Add a placeholder output for change to calculate bytecode size
-      const placeholderOutput: TransactionOutput = {
-        recipientAddress: changeAddress,
-        amount: 546, // Dust amount to ensure proper transaction formatting
-      };
-      const txOutputsWithPlaceholder = [...outputs, placeholderOutput];
-      // console.log(
-      //   'Transaction Outputs with Placeholder:',
-      //   txOutputsWithPlaceholder
-      // );
+      if (!selectedUtxos || selectedUtxos.length === 0) {
+        throw new Error('No inputs selected.');
+      }
+      if (!outputs || outputs.length === 0) {
+        throw new Error('No outputs specified.');
+      }
 
-      // First build to get bytecode size
-      const transaction = await txBuilder.buildTransaction(
-        selectedUtxos,
-        txOutputsWithPlaceholder
+      const inputTotal = sumInputs(selectedUtxos);
+      const outputsNoChange = [...intendedOutputs];
+
+      // IMPORTANT CHANGE:
+      // Do NOT treat "any output to changeAddress" as a manual change output.
+      // Only treat it as manual change if explicitly flagged.
+      const explicitManualChangeOutput = hasExplicitManualChangeOutput(
+        outputsNoChange,
+        changeAddress
       );
-      // console.log('Transaction after first build:', transaction);
 
-      if (transaction) {
-        // Calculate bytecode size based on transaction length
-        const bytecodeSize = transaction.length / 2;
+      // 1) Estimate bytes WITHOUT change first
+      const txNoChangeHex = await txBuilder.buildTransaction(
+        selectedUtxos,
+        outputsNoChange
+      );
+      const bytesNoChange = txBytesFromHex(txNoChangeHex);
+      const feeNoChange = BigInt(bytesNoChange);
 
-        // Calculate the remaining amount after outputs and bytecode
-        const remainder =
-          totalUtxoAmount - totalOutputAmount - BigInt(bytecodeSize);
-        // console.log(`Bytecode Size: ${bytecodeSize}`);
-        // console.log(`Remainder: ${remainder}`);
+      const outNoChangeTotal = sumOutputs(outputsNoChange);
+      void (inputTotal - outNoChangeTotal - feeNoChange);
 
-        // Remove the placeholder output
-        const txOutputs = [...outputs];
-        // console.log('Transaction Outputs before adding change:', txOutputs);
+      // Advanced/debug mode: always attempt auto-change if changeAddress is present
+      // (unless explicitly flagged as manual change output).
+      const shouldTryAutoChange =
+        !!changeAddress && !explicitManualChangeOutput;
 
-        // Add the change output if there's a remainder
-        if (changeAddress && remainder > BigInt(0)) {
-          const changeAmount = Number(remainder);
-          // console.log(`Calculated Change Amount: ${changeAmount}`);
+      let plannedOutputs: TransactionOutput[] = outputsNoChange;
 
-          if (changeAmount > 0) {
-            const changeOutput: TransactionOutput = {
-              recipientAddress: changeAddress,
-              amount: changeAmount,
-              // Optionally, mark this as a change output
-              // isChange: true,
-            };
-            txOutputs.push(changeOutput);
-            // console.log('Added Change Output:', changeOutput);
-          } else {
-            console.warn('No sufficient remainder to add a change output.');
-          }
-        } else {
-          console.warn('No remainder to add a change output.');
+      if (shouldTryAutoChange) {
+        const placeholder: TransactionOutput = {
+          recipientAddress: changeAddress,
+          amount: DUST,
+        };
+
+        let bytesWithChange: number;
+
+        // 2) Re-estimate bytes WITH placeholder change output (preferred)
+        try {
+          const txWithChangeHex = await txBuilder.buildTransaction(
+            selectedUtxos,
+            [...outputsNoChange, placeholder]
+          );
+          bytesWithChange = txBytesFromHex(txWithChangeHex);
+        } catch (error: unknown) {
+          bytesWithChange = estimateAddP2PKHOutputBytes(
+            bytesNoChange,
+            outputsNoChange.length
+          );
+          void error;
         }
 
-        // console.log('Final Transaction Outputs:', txOutputs);
+        const feeWithChange = BigInt(bytesWithChange);
+        const remainder = inputTotal - outNoChangeTotal - feeWithChange;
 
-        // Build the final transaction with the updated outputs
-        const finalTransaction = await txBuilder.buildTransaction(
-          selectedUtxos,
-          txOutputs
-          // selectedFunction,
-          // contractFunctionInputs
-        );
-        // console.log('Final Transaction:', finalTransaction);
-
-        returnObj.bytecodeSize = finalTransaction.length / 2;
-        returnObj.finalTransaction = finalTransaction;
-        returnObj.finalOutputs = txOutputs;
-
-        // console.log('Final Transaction Outputs:', txOutputs);
-
-        returnObj.errorMsg = '';
-        // console.log(txOutputs)
+        // Only add change if it is >= DUST
+        if (remainder >= BigInt(DUST)) {
+          plannedOutputs = [
+            ...outputsNoChange,
+            { recipientAddress: changeAddress, amount: Number(remainder) },
+          ];
+        } else {
+          plannedOutputs = outputsNoChange;
+        }
       }
-    } catch (err: any) {
-      console.error('Error building transaction:', err);
-      returnObj.errorMsg = err.message || 'Unknown error';
+
+      intendedOutputs = plannedOutputs;
+
+      // 3) Build final transaction
+      let finalHex = await txBuilder.buildTransaction(
+        selectedUtxos,
+        plannedOutputs
+      );
+
+      // 4) Validate min relay fee using ACTUAL bytes and ACTUAL fee paid.
+      const actualBytes = txBytesFromHex(finalHex);
+      const outputsTotal = sumOutputs(plannedOutputs);
+      const feePaid = inputTotal - outputsTotal;
+
+      if (feePaid < BigInt(actualBytes)) {
+        // Stabilizing retry: recompute change using actualBytes as fee
+        if (changeAddress && !explicitManualChangeOutput) {
+          const feeActual = BigInt(actualBytes);
+          const remainder2 = inputTotal - outNoChangeTotal - feeActual;
+
+          if (remainder2 >= BigInt(DUST)) {
+            const outputsRetry: TransactionOutput[] = [
+              ...outputsNoChange,
+              { recipientAddress: changeAddress, amount: Number(remainder2) },
+            ];
+
+            intendedOutputs = outputsRetry;
+
+            finalHex = await txBuilder.buildTransaction(
+              selectedUtxos,
+              outputsRetry
+            );
+
+            const bytesRetry = txBytesFromHex(finalHex);
+            const outputsRetryTotal = sumOutputs(outputsRetry);
+            const feePaidRetry = inputTotal - outputsRetryTotal;
+
+            if (feePaidRetry < BigInt(bytesRetry)) {
+              const shortBy = Number(BigInt(bytesRetry) - feePaidRetry);
+              throw new Error(
+                formatMinRelayError({
+                  paying: feePaidRetry,
+                  size: bytesRetry,
+                  needAtLeast: bytesRetry,
+                  shortBy,
+                })
+              );
+            }
+
+            returnObj.bytecodeSize = bytesRetry;
+            returnObj.finalTransaction = finalHex;
+            returnObj.finalOutputs = outputsRetry;
+            returnObj.errorMsg = '';
+            return returnObj;
+          }
+        }
+
+        const shortBy = Number(BigInt(actualBytes) - feePaid);
+        throw new Error(
+          formatMinRelayError({
+            paying: feePaid,
+            size: actualBytes,
+            needAtLeast: actualBytes,
+            shortBy,
+          })
+        );
+      }
+
+      // Success
+      returnObj.bytecodeSize = actualBytes;
+      returnObj.finalTransaction = finalHex;
+      returnObj.finalOutputs = plannedOutputs;
+      returnObj.errorMsg = '';
+      return returnObj;
+    } catch (error: unknown) {
+      logError('TransactionManager.buildTransaction', error);
+
+      // Debug UX requirement: still return the intended outputs (including change)
+      // even if the contract rejects the shape and the tx fails to build.
+      returnObj.finalOutputs = intendedOutputs;
+      returnObj.finalTransaction = '';
+      returnObj.bytecodeSize = 0;
+      returnObj.errorMsg = toErrorMessage(error);
+      return returnObj;
     }
-    return returnObj;
   };
 
-  /**
-   * Fetches the private key for a given address using the KeyService.
-   *
-   * @param address - The address to fetch the private key for.
-   * @returns A Uint8Array representing the private key or null if not found.
-   */
-  const fetchPrivateKey = async (
-    address: string
-  ): Promise<Uint8Array | null> => {
-    return await KeyService.fetchAddressPrivateKey(address);
-  };
+  async function fetchPrivateKey(address: string): Promise<Uint8Array | null> {
+    return await (
+      await import('../../services/KeyService')
+    ).default.fetchAddressPrivateKey(address);
+  }
 
   return {
     fetchAndStoreTransactionHistory,
+    fetchAndStoreTransactionHistories,
     sendTransaction,
     addOutput,
     buildTransaction,

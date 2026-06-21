@@ -1,38 +1,45 @@
 // src/components/PriceFeed.tsx
-import React, { useEffect } from 'react';
+import React from 'react';
 import { useSelector } from 'react-redux';
 import Carousel from 'react-multi-carousel';
 import 'react-multi-carousel/lib/styles.css';
-import { RootState } from '../redux/store';
+import { RootState } from '../state/store';
 import { FaBitcoin, FaEthereum } from 'react-icons/fa';
 
 const responsive = {
   superLargeDesktop: { breakpoint: { max: 4000, min: 3000 }, items: 5 },
-  desktop:           { breakpoint: { max: 3000, min: 1024 }, items: 3 },
-  tablet:            { breakpoint: { max: 1024, min: 464  }, items: 2 },
-  mobile:            { breakpoint: { max: 464,  min: 0    }, items: 1 },
+  desktop: { breakpoint: { max: 3000, min: 1024 }, items: 3 },
+  tablet: { breakpoint: { max: 1024, min: 464 }, items: 2 },
+  mobile: { breakpoint: { max: 464, min: 0 }, items: 1 },
 };
 
 const ASSETS = ['BTC', 'BCH', 'ETH'] as const;
 
 const getLogo = (symbol: string) => {
   switch (symbol) {
-    case 'BTC': return <FaBitcoin className="text-orange-500 text-3xl mr-3" />;
-    case 'BCH': return <FaBitcoin className="text-green-500  text-3xl mr-3" />;
-    case 'ETH': return <FaEthereum className="text-blue-500   text-3xl mr-3" />;
-    default:    return null;
+    case 'BTC':
+      return <FaBitcoin className="wallet-coin-btc text-3xl mr-3" />;
+    case 'BCH':
+      return <FaBitcoin className="wallet-accent-icon text-3xl mr-3" />;
+    case 'ETH':
+      return <FaEthereum className="wallet-coin-eth text-3xl mr-3" />;
+    default:
+      return null;
   }
 };
 
-const PriceFeed: React.FC = () => {
-  const prices = useSelector((s: RootState) => s.priceFeed);
+const fmtUSD = (n: number) =>
+  n.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
-  // Log the entire prices object whenever it changes
-  useEffect(() => {
-    // console.group('[PriceFeed] Current rates from Redux:');
-    // console.log(prices);
-    // console.groupEnd();
-  }, [prices]);
+type PriceFeedProps = {
+  compact?: boolean;
+};
+
+const PriceFeed: React.FC<PriceFeedProps> = ({ compact = false }) => {
+  const prices = useSelector((s: RootState) => s.priceFeed);
 
   return (
     <div className="price-feed-carousel">
@@ -45,34 +52,38 @@ const PriceFeed: React.FC = () => {
         transitionDuration={500}
         containerClass="carousel-container"
         itemClass="carousel-item-padding-40-px"
-        removeArrowOnDeviceType={['tablet','mobile']}
+        removeArrowOnDeviceType={['tablet', 'mobile']}
         showDots={false}
       >
         {ASSETS.map((symbol) => {
-          const rate = prices[symbol];
-
-          // Log per-symbol rate as well
-          // console.log(`[PriceFeed] rate[${symbol}] =`, rate);
-
-          const display =
-            rate != null
-              ? `$${Number(rate).toFixed(2)}`
-              : 'Loading…';
+          const key = `${symbol}-USD`;
+          const datum = prices[key];
+          const display = datum ? `$${fmtUSD(datum.price)}` : 'Loading…';
+          // const meta = datum
+          //   ? `${datum.source}${
+          //       datum.ts
+          //         ? ` • ${Math.max(0, Math.floor((Date.now() - datum.ts) / 1000))}s`
+          //         : ''
+          //     }`
+          //   : '—';
 
           return (
-            <div
-              key={symbol}
-              className="scrolling-price-item bg-white px-6 py-12 rounded-lg shadow-lg flex items-center space-x-4 mx-4"
-            >
+          <div
+            key={symbol}
+            className={`scrolling-price-item wallet-card rounded-lg shadow-lg grid grid-cols-[auto,1fr,auto] items-center gap-x-4 mx-4 ${
+              compact ? 'px-3 py-2.5' : 'px-6 py-12'
+            }`}
+          >
               {getLogo(symbol)}
-              <div className="flex-1">
-                <span className="font-semibold text-lg capitalize text-gray-800">
+              <div className="flex flex-col">
+                <span className={`${compact ? 'text-xs' : 'text-lg'} font-semibold wallet-text-strong`}>
                   {symbol}
                 </span>
-                <div className="text-gray-600 text-xl">
-                  {display}
-                </div>
-                <span className="text-gray-500 text-sm">USD</span>
+                <span className={`${compact ? 'text-[10px]' : 'text-xs'} wallet-muted`}>USD</span>
+              </div>
+              <div className="flex flex-col items-end font-bold">
+                <div className={`${compact ? 'text-sm' : 'text-xl'} wallet-text-strong`}>{display}</div>
+                {/* <span className="wallet-muted text-xs">{meta}</span> */}
               </div>
             </div>
           );

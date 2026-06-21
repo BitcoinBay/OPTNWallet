@@ -1,62 +1,201 @@
 // src/services/priceService.ts
-import { Capacitor } from '@capacitor/core';
-import { Http } from '@capacitor-community/http';
+import { CapacitorHttp } from '@capacitor/core';
+import { isWebPlatform } from '../utils/platform';
 
-const API_BASE = 'https://rest.cryptoapis.io';
-const API_KEY  = '6d9896a7304104e32b4091e9197f1d1b03faffb3';
+/** ===== Types ===== */
+export type BaseSymbol = 'BTC' | 'BCH' | 'ETH';
+export type QuoteSymbol = 'USD';
+export type Quote = {
+  base: BaseSymbol;
+  quote: QuoteSymbol; // 'USD'
+  price: number;
+  ts: number; // ms epoch (provider ts if available, else Date.now())
+  source: 'optnlabs';
+};
 
-export async function getRate(symbol: string): Promise<string | null> {
-  const platform = Capacitor.getPlatform();
-//   console.log('[priceService] Platform:', platform);
+/** ===== Env helpers =====
+ * In Vite: use VITE_* vars. In other bundlers, fall back to process.env.
+ * PRICE_SERVER_BASE can be overridden for staging/local testing.
+ */
+function env(name: string): string | undefined {
+  const metaEnv =
+    typeof import.meta !== 'undefined'
+      ? ((import.meta as ImportMeta & { env?: Record<string, unknown> }).env ??
+        {})
+      : {};
+  const nodeEnv =
+    typeof process !== 'undefined'
+      ? ((process as { env?: Record<string, unknown> }).env ?? {})
+      : {};
 
-  // === WEB FALLBACK (dev only) ===
-  if (platform === 'web') {
-    const ts    = Math.floor(Date.now()/1000);
-    const proxy = `/cryptoapi/market-data/exchange-rates/by-symbol/${symbol}/USD`;
-    const url   = `${proxy}?calculationTimestamp=${ts}`;
-    // console.group(`[priceService] WEB FETCH ${symbol}`);
-    // console.log('→ URL:', url);
-    // console.log('→ Headers: x-api-key:', API_KEY);
-    try {
-      const res = await fetch(url, {
-        headers: { 'x-api-key': API_KEY }
-      });
-    //   console.log('← Status:', res.status);
-      const body = await res.json();
-    //   console.log('← Body:', body);
-    //   console.groupEnd();
+  // Vite style
+  const viteVal = metaEnv[name];
+  // Node style (SSR / native builds)
+  const nodeVal = nodeEnv[name];
+  if (typeof viteVal === 'string') return viteVal;
+  if (typeof nodeVal === 'string') return nodeVal;
+  return undefined;
+}
 
-      if (res.ok && body?.data?.item?.rate) {
-        return body.data.item.rate;
-      }
-    } catch (e) {
-      console.error('[priceService] web fetch error', e);
+const PRICE_SERVER_BASE = (
+  env('VITE_PRICE_SERVER_BASE') ||
+  env('PRICE_SERVER_BASE') ||
+  'https://price.optnlabs.com'
+).replace(/\/+$/, '');
+
+/** ===== HTTP helpers ===== */
+async function fetchJSON(
+  full: string,
+  {
+    headers,
+    timeoutMs = 8000,
+  }: {
+    headers?: Record<string, string>;
+    timeoutMs?: number;
+  } = {}
+): Promise<unknown> {
+  const ctrl = new AbortController();
+  const to = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(full, { headers, signal: ctrl.signal });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err = new Error(`HTTP ${res.status}`) as Error & {
+        status?: number;
+        body?: unknown;
+      };
+      err.status = res.status;
+      err.body = json;
+      throw err;
     }
-    return null;
+    return json;
+  } finally {
+    clearTimeout(to);
   }
+}
 
-  // === NATIVE (iOS/Android) ===
-  const ts     = Math.floor(Date.now()/1000);
-  const url    = `${API_BASE}/market-data/exchange-rates/by-symbol/${symbol}/USD`;
-  const params = { calculationTimestamp: ts.toString() };
-  const headers= { 'Content-Type':'application/json', 'x-api-key': API_KEY };
+async function capacitorHttpJSON(
+  full: string,
+  {
+    headers,
+    timeoutMs = 8000,
+  }: {
+    headers?: Record<string, string>;
+    timeoutMs?: number;
+  } = {}
+): Promise<unknown> {
+  return await Promise.race([
+    CapacitorHttp.get({ url: full, headers, params: undefined }).then(
+      (r) => r.data
+    ),
+    new Promise((_, rej) =>
+      setTimeout(() => rej(new Error('Timeout')), timeoutMs)
+    ),
+  ]);
+}
 
-//   console.group(`[priceService] NATIVE HTTP ${symbol}`);
-//   console.log('→ URL:',    url);
-//   console.log('→ Params:', params);
-//   console.log('→ Headers:', headers);
+async function httpGetJSON(
+  url: string,
+  {
+    headers,
+    params,
+    timeoutMs = 8000,
+  }: {
+    headers?: Record<string, string>;
+    params?: Record<string, string | number | boolean>;
+    timeoutMs?: number;
+  } = {}
+): Promise<unknown> {
+  const qp = params
+    ? '?' +
+      Object.entries(params)
+        .map(
+          ([k, v]) =>
+            `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`
+        )
+        .join('&')
+    : '';
+  const full = url + qp;
 
   try {
-    const response = await Http.get({ url, headers, params });
-    // console.log('← Status:', response.status);
-    // console.log('← Data:',   response.data);
-    // console.groupEnd();
-
-    if (response.status === 200 && response.data?.data?.item?.rate) {
-      return response.data.data.item.rate;
+    // Prefer the standard fetch path everywhere. The native webview can still
+    // use it once the API CORS allowlist includes the app origin.
+    return await fetchJSON(full, { headers, timeoutMs });
+  } catch (fetchError) {
+    // Fall back to CapacitorHttp on native builds so a webview/CORS issue does
+    // not completely block price loading.
+    if (!isWebPlatform()) {
+      try {
+        return await capacitorHttpJSON(full, { headers, timeoutMs });
+      } catch {
+        throw fetchError;
+      }
     }
-  } catch (e) {
-    console.error('[priceService] native HTTP error', e);
+    throw fetchError;
   }
-  return null;
+}
+
+/** ===== Price server adapter ===== */
+const SUPPORTED_BASES: readonly BaseSymbol[] = ['BTC', 'BCH', 'ETH'];
+
+type PriceServerQuote = {
+  base?: string;
+  quote?: string;
+  price?: number | string;
+  ts?: number | string;
+};
+
+type PriceServerResponse = {
+  quotes?: PriceServerQuote[];
+};
+
+function isBaseSymbol(value: string): value is BaseSymbol {
+  return (SUPPORTED_BASES as readonly string[]).includes(value);
+}
+
+async function fetchFromOptnPriceServer(bases: BaseSymbol[]): Promise<Quote[]> {
+  const url = `${PRICE_SERVER_BASE}/v1/prices`;
+  const data = (await httpGetJSON(url, {
+    params: { bases: bases.join(','), quote: 'USD' },
+  })) as PriceServerResponse;
+
+  const now = Date.now();
+  const quotes: Quote[] = Array.isArray(data?.quotes)
+    ? data.quotes
+        .map((item) => {
+          const base = String(item?.base ?? '').toUpperCase();
+          const quote = String(item?.quote ?? '').toUpperCase();
+          const price = Number(item?.price);
+          const ts = Number(item?.ts);
+          if (!isBaseSymbol(base)) return null;
+          if (quote !== 'USD' || !Number.isFinite(price)) return null;
+          return {
+            base,
+            quote: 'USD',
+            price,
+            ts: Number.isFinite(ts) ? ts : now,
+            source: 'optnlabs',
+          } as Quote;
+        })
+        .filter(Boolean) as Quote[]
+    : [];
+
+  return quotes;
+}
+
+/** ===== Public API =====
+ * getQuotesUSD: reads from OPTN price server only.
+ * getRate: compatibility wrapper returning a string or null.
+ */
+export async function getQuotesUSD(bases: BaseSymbol[]): Promise<Quote[]> {
+  const unique = Array.from(new Set(bases));
+  return fetchFromOptnPriceServer(unique);
+}
+
+// Back-compat: same signature as your old function, now with normalized pipeline under the hood.
+// Returns string | null to avoid breaking existing callers.
+export async function getRate(symbol: BaseSymbol): Promise<string | null> {
+  const quotes = await getQuotesUSD([symbol]);
+  const q = quotes.find((x) => x.base === symbol);
+  return q ? String(q.price) : null;
 }

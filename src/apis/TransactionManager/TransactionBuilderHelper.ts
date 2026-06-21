@@ -7,117 +7,304 @@ import {
   HashType,
 } from 'cashscript';
 import ContractManager from '../ContractManager/ContractManager';
-import { UTXO, TransactionOutput } from '../../types/types'; // Updated import to include UTXO and TransactionOutput interfaces
-import { store } from '../../redux/store';
+import { UTXO, TransactionOutput } from '../../types/types';
+import { store } from '../../state/store';
 import KeyService from '../../services/KeyService';
+import { PaperWalletSecretStore } from '../../services/PaperWalletSecretStore';
+import { TOKEN_OUTPUT_SATS } from '../../utils/constants';
 
-export default function TransactionBuilderHelper() {
+type TransactionBuilderHelperOptions = {
+  allowImplicitFungibleTokenBurn?: boolean;
+};
+
+export default function TransactionBuilderHelper(
+  options: TransactionBuilderHelperOptions = {}
+) {
   const currentNetwork = store.getState().network.currentNetwork;
   const provider = new ElectrumNetworkProvider(currentNetwork);
   const contractManager = ContractManager();
+  type ContractSourceCarrier = { artifact?: { source?: string } };
+
+  // Safe bigint coercion for number | bigint | string | undefined/null
+  function toBigIntAmount(value: unknown): bigint {
+    if (typeof value === 'bigint') return value;
+    if (typeof value === 'number') {
+      if (!Number.isFinite(value)) return 0n;
+      // BCH sats + token amounts should be integers
+      return BigInt(Math.trunc(value));
+    }
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return 0n;
+      try {
+        return BigInt(trimmed);
+      } catch {
+        return 0n;
+      }
+    }
+    return 0n;
+  }
+
+  function validateAuthGuardShape(utxos: UTXO[], outputs: TransactionOutput[]) {
+    // Find first AuthGuard contract spend in inputs
+    const idx = utxos.findIndex(
+      (u) =>
+        String(u.contractName ?? '').toLowerCase() === 'authguard' &&
+        String(u.contractFunction ?? '') === 'unlockWithNft'
+    );
+
+    if (idx === -1) return; // not an AuthGuard spend
+
+    // AuthGuard contract checks tx.inputs[1] specifically
+    if (utxos.length < 2) {
+      throw new Error(
+        'AuthGuard spend requires at least 2 inputs: [authHead, authKeyNFT, ...]'
+      );
+    }
+
+    // Strongly enforce the recommended ordering for v1 UX
+    if (idx !== 0) {
+      throw new Error(
+        `AuthGuard spend requires authHead to be inputs[0] (got inputs[${idx}]). Ensure inputs=[authHead, authKeyNFT, ...fee].`
+      );
+    }
+
+    const authKey = utxos[1];
+    if (!authKey.token) {
+      throw new Error(
+        'AuthGuard spend requires inputs[1] to be the AuthKey NFT (token UTXO with amount=0).'
+      );
+    }
+
+    const authKeyAmt = toBigIntAmount(authKey.token.amount ?? 0);
+    if (authKeyAmt !== 0n) {
+      throw new Error(
+        `AuthKey must be NFT-only (token amount must be 0). Got amount=${authKeyAmt.toString()}`
+      );
+    }
+
+    // If keepGuarded=true, outputs[0] must preserve locking bytecode.
+    // We can’t compute bytecode here, but we can enforce a sane structure:
+    const keep =
+      utxos[0].contractFunctionInputs?.['keepGuarded'] === true;
+
+    if (keep) {
+      if (!outputs || outputs.length === 0) {
+        throw new Error(
+          'AuthGuard keepGuarded=true requires outputs[0] to be the authHead continuation.'
+        );
+      }
+      const o0 = outputs[0];
+      if ('opReturn' in o0 && o0.opReturn !== undefined) {
+        throw new Error(
+          'AuthGuard keepGuarded=true requires outputs[0] to be a normal output (not OP_RETURN).'
+        );
+      }
+      const toAddr = o0.recipientAddress;
+      if (!toAddr || typeof toAddr !== 'string') {
+        throw new Error(
+          'AuthGuard keepGuarded=true requires outputs[0].recipientAddress to be the authHead contract address.'
+        );
+      }
+      // Best-effort check: if the contract UTXO has an address, ensure output[0] targets it
+      const headAddr = utxos[0].address;
+      if (headAddr && String(toAddr) !== String(headAddr)) {
+        throw new Error(
+          `AuthGuard keepGuarded=true requires outputs[0] to pay back to authHead address. expected=${headAddr} got=${String(
+            toAddr
+          )}`
+        );
+      }
+    }
+  }
+
+  /**
+   * Extracts the body of a specified function from the contract source code.
+   */
+  function extractFunctionBody(
+    source: string,
+    functionName: string
+  ): string | null {
+    const functionRegex = new RegExp(
+      `function\\s+${functionName}\\s*\\(.*?\\)\\s*{`,
+      's'
+    );
+    const match = source.match(functionRegex);
+    if (!match || match.index === undefined) return null;
+
+    const startIndex = match.index + match[0].length;
+    let braceCount = 1;
+    let endIndex = startIndex;
+
+    while (endIndex < source.length && braceCount > 0) {
+      if (source[endIndex] === '{') braceCount++;
+      else if (source[endIndex] === '}') braceCount--;
+      endIndex++;
+    }
+
+    if (braceCount === 0) {
+      return source.substring(startIndex, endIndex - 1).trim();
+    }
+    return null;
+  }
+
+  /**
+   * Checks if the specified function uses time-related keywords (tx.time, tx.age, this.age).
+   */
+  function doesFunctionUseTimeKeywords(
+    contractInstance: ContractSourceCarrier,
+    functionName: string
+  ): boolean {
+    const source = contractInstance.artifact?.source;
+    if (!source) return false;
+    const functionBody = extractFunctionBody(source, functionName);
+    if (!functionBody) return false;
+
+    return (
+      functionBody.includes('tx.time') ||
+      functionBody.includes('tx.age') ||
+      functionBody.includes('this.age')
+    );
+  }
 
   /**
    * Prepares transaction outputs by formatting them according to CashScript requirements.
    *
-   * @param outputs - An array of TransactionOutput objects.
-   * @returns An array of formatted outputs for cashscript TransactionBuilder.
+   * Token-bearing outputs are forced to have at least TOKEN_OUTPUT_SATS sats.
+   * Token.amount is always included (NFTs should use amount=0).
    */
-  function prepareTransactionOutputs(outputs: TransactionOutput[]): any[] {
-    return outputs.map((output) => {
-      // If this is an OP_RETURN variant
-      if ('opReturn' in output && output.opReturn !== undefined) {
-        return {
-          opReturn: output.opReturn,
-        };
-      }
+  function prepareStandardOutput(output: Exclude<TransactionOutput, { opReturn: string[] }>): unknown {
+    let amountSats = toBigIntAmount(output.amount);
 
-      // Otherwise, this is a "regular" or token output
-      const baseOutput = {
-        to: output.recipientAddress,
-        amount: BigInt(output.amount),
+    // Enforce token-bearing outputs have minimum sats
+    if (output.token) {
+      const minTokenSats = BigInt(TOKEN_OUTPUT_SATS);
+      if (amountSats < minTokenSats) amountSats = minTokenSats;
+    }
+
+    const baseOutput = {
+      to: output.recipientAddress,
+      amount: amountSats,
+    };
+
+    if (output.token) {
+      return {
+        ...baseOutput,
+        token: {
+          category: output.token.category,
+          ...(output.token.nft && {
+            nft: {
+              capability: output.token.nft.capability,
+              commitment: output.token.nft.commitment,
+            },
+          }),
+          // Always include amount: NFTs should be 0; FTs should be set by caller.
+          amount: toBigIntAmount(output.token.amount ?? 0),
+        },
       };
+    }
 
-      // If there's a token field
-      if (output.token) {
-        // If the token has NFT data, we enforce a zero fungible amount
-        if (output.token.nft) {
-          return {
-            ...baseOutput,
-            // Always zero for NFT
-            token: {
-              amount: BigInt(0), // or remove this entirely if desired
-              category: output.token.category,
-              nft: {
-                capability: output.token.nft.capability,
-                commitment: output.token.nft.commitment,
-              },
-            },
-          };
-        } else {
-          // Fungible token only
-          return {
-            ...baseOutput,
-            token: {
-              amount: BigInt(output.token.amount),
-              category: output.token.category,
-            },
-          };
-        }
+    return baseOutput;
+  }
+
+  function validateOpReturnChunks(chunks: string[]): string[] {
+    return chunks.map((chunk, index) => {
+      if (typeof chunk !== 'string') {
+        throw new Error(`OP_RETURN chunk at index ${index} must be a string.`);
       }
-
-      // If there's no token, return the base output
-      return baseOutput;
+      return chunk;
     });
   }
 
   /**
-   * Builds a transaction using selected UTXOs, outputs, and optional contract functions.
-   *
-   * @param utxos - An array of selected UTXOs.
-   * @param outputs - An array of desired transaction outputs.
-   * @param contractFunction - (Optional) The name of the contract function to invoke.
-   * @param contractFunctionInputs - (Optional) An object containing inputs for the contract function.
-   * @returns The built transaction or null if an error occurs.
+   * Builds a transaction using selected UTXOs and outputs.
    */
-  async function buildTransaction(
-    utxos: UTXO[],
-    outputs: TransactionOutput[]
-    // contractFunction: string | null = null,
-    // contractFunctionInputs: { [key: string]: any } | null = null
-  ) {
-    const txBuilder = new TransactionBuilder({ provider });
+  async function buildTransaction(utxos: UTXO[], outputs: TransactionOutput[]) {
+    // Preflight: fail early with clear errors for covenant ordering constraints
+    validateAuthGuardShape(utxos, outputs);
 
-    // Prepare unlockable UTXOs with appropriate unlockers
-    const unlockableUtxos = await Promise.all(
-      utxos.map(async (utxo) => {
-        let unlocker: any;
+      const txBuilder = new TransactionBuilder({
+        provider,
+        allowImplicitFungibleTokenBurn:
+          options.allowImplicitFungibleTokenBurn ?? false,
+      });
+      let needsLocktime = false;
+
+      const unlockableUtxos = await Promise.all(
+        utxos.map(async (utxo) => {
+        let unlocker: unknown;
+
+        // Prefer nullish coalescing so 0 doesn't fall through
+        const value = (utxo.value ?? utxo.amount) as number | undefined;
+        if (
+          value === undefined ||
+          value === null ||
+          Number.isNaN(Number(value))
+        ) {
+          throw new Error(
+            `UTXO missing value/amount for ${utxo.tx_hash}:${utxo.tx_pos}`
+          );
+        }
 
         const processedUtxo = {
           ...utxo,
-          value: utxo.value || utxo.amount,
+          value,
         };
 
         if (!processedUtxo.contractName || !processedUtxo.abi) {
-          // Regular UTXO - use signature unlocker
-          const privateKey = utxo.privateKey
-            ? utxo.privateKey
-            : await KeyService.fetchAddressPrivateKey(processedUtxo.address);
+          let signingKey: Uint8Array | undefined;
 
-          if (!privateKey || privateKey.length === 0) {
-            throw new Error(
-              `Private key not found or empty for address: ${processedUtxo.address}`
+          if (processedUtxo.isPaperWallet) {
+            signingKey = PaperWalletSecretStore.get(
+              processedUtxo.tx_hash,
+              processedUtxo.tx_pos
             );
+            if (!signingKey || signingKey.length === 0) {
+              throw new Error(
+                `Paper wallet key missing for outpoint ${processedUtxo.tx_hash}:${processedUtxo.tx_pos}`
+              );
+            }
+          } else {
+            signingKey = await KeyService.fetchAddressPrivateKey(
+              processedUtxo.address
+            );
+            if (!signingKey || signingKey.length === 0) {
+              throw new Error(
+                [
+                  'Private key not found for selected input address.',
+                  `address=${processedUtxo.address}`,
+                  `outpoint=${processedUtxo.tx_hash}:${processedUtxo.tx_pos}`,
+                  'Likely causes:',
+                  '- address encoding mismatch (cashaddr vs token addr vs prefixed)',
+                  '- wallet keys table no longer stores this address',
+                  '- KeyService lookup now requires walletId/account and is not provided here',
+                ].join(' ')
+              );
+            }
           }
 
           const signatureTemplate = new SignatureTemplate(
-            privateKey,
+            signingKey,
             HashType.SIGHASH_ALL
           );
           unlocker = signatureTemplate.unlockP2PKH();
         } else {
-          // Contract UTXO - use contract unlocker
+          // Contract UTXO - contract unlocker
+          const contractInstance =
+            await contractManager.getContractInstanceByAddress(utxo.address);
+
           if (!utxo.contractFunction || !utxo.contractFunctionInputs) {
             throw new Error('Contract function and inputs must be provided');
+          }
+
+          // Patient-0 / fresh contract outputs may not have a DB instance.
+          // Avoid null-deref; locktime can still be detected later if needed.
+          if (contractInstance) {
+            const usesTimeKeywords = doesFunctionUseTimeKeywords(
+              contractInstance,
+              utxo.contractFunction
+            );
+            if (usesTimeKeywords) needsLocktime = true;
           }
 
           const contractUnlockFunction =
@@ -137,46 +324,55 @@ export default function TransactionBuilderHelper() {
           token: processedUtxo.token
             ? {
                 ...processedUtxo.token,
-                amount: BigInt(processedUtxo.token.amount), // convert amount to bigint
+                // Always coerce safely; NFTs should end up with 0n
+                amount: toBigIntAmount(processedUtxo.token.amount ?? 0),
               }
             : undefined,
         };
       })
     );
 
-    // Add inputs to the transaction builder
-    txBuilder.addInputs(unlockableUtxos);
+    txBuilder.addInputs(
+      unlockableUtxos as Parameters<typeof txBuilder.addInputs>[0]
+    );
 
-    // Prepare and add outputs
-    const txOutputs = prepareTransactionOutputs(outputs);
-    txBuilder.addOutputs(txOutputs);
+    for (const output of outputs) {
+      if ('opReturn' in output && output.opReturn !== undefined) {
+        txBuilder.addOpReturnOutput(validateOpReturnChunks(output.opReturn));
+        continue;
+      }
 
-    // console.log(txBuilder);
+      const standardOutput = prepareStandardOutput(
+        output as Exclude<TransactionOutput, { opReturn: string[] }>
+      );
+      txBuilder.addOutputs([
+        standardOutput,
+      ] as Parameters<typeof txBuilder.addOutputs>[0]);
+    }
+
+    if (needsLocktime) {
+      const currentBlockHeight = await provider.getBlockHeight();
+      txBuilder.setLocktime(currentBlockHeight);
+    }
 
     try {
-      const builtTransaction = await txBuilder.build(); // Ensure await is present
-      // console.log('Built Transaction:', builtTransaction);
+      const builtTransaction = await txBuilder.build();
       return builtTransaction;
     } catch (error) {
       console.error('Error building transaction:', error);
-      throw error; // Propagate the error upwards for better handling
+      throw error;
     }
   }
 
-  /**
-   * Sends a raw transaction to the network.
-   *
-   * @param tx - The raw transaction hex string.
-   * @returns The transaction ID or null if an error occurs.
-   */
   const sendTransaction = async (tx: string) => {
-    try {
-      const txid = await provider.sendRawTransaction(tx);
-      return txid;
-    } catch (error) {
-      console.error(error);
-      return null;
+    // IMPORTANT: do not swallow broadcast errors
+    const txid = await provider.sendRawTransaction(tx);
+
+    if (!txid || typeof txid !== 'string') {
+      throw new Error(`Broadcast returned invalid txid: ${String(txid)}`);
     }
+
+    return txid;
   };
 
   return {

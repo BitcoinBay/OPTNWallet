@@ -1,16 +1,17 @@
-// @ts-nocheck
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useSelector } from 'react-redux';
-import { RootState } from '../../redux/store';
+import { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import ContractModal from '../../components/ContractModal';
 import { Toast } from '@capacitor/toast';
 import axios, { AxiosError } from 'axios';
-import { Utxo } from 'cashscript';
 import ElectrumServer from '../../apis/ElectrumServer/ElectrumServer';
-import { AddressCashStarter, MasterCategoryID } from './utils/values';
+import { AddressCashStarter, MasterCategoryID } from './fundme/values';
 import SignClient from '@walletconnect/sign-client'
 import { WalletConnectModal } from '@walletconnect/modal';
+import { getReturnPath } from '../../utils/navigation';
+import {
+  getWalletConnectMetadataUrl,
+  getWalletConnectProjectId,
+} from '../../utils/walletconnectConfig';
 
 interface ElectrumUtxo {
   height: number;
@@ -37,7 +38,7 @@ interface AppAction {
     name: string;
     description: string;
     parameters: ActionParameter[];
-    handler: (params: any) => Promise<void>;
+    handler: (params: unknown) => Promise<void>;
 }
 interface CampaignUtxo extends ElectrumUtxo {
   name: string;
@@ -60,20 +61,33 @@ const FundMeApp = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+  const location = useLocation();
+  const backTarget = getReturnPath(location, '/apps');
   const [totalCampaigns, setTotalCampaigns] = useState<number>(0);
   const [totalBCHRaised, setTotalBCHRaised] = useState<number>(0);
   const [totalPledges, setTotalPledges] = useState<number>(0);
   const [walletConnectInstance, setWalletConnectInstance] = useState<SignClient | null>(null);
-  const [walletConnectSession, setWalletConnectSession] = useState<any>(null);
-  const [connectedChain, setConnectedChain] = useState<string | null>('bch:bchtest');
+  const [walletConnectSession, setWalletConnectSession] = useState<{
+    topic: string;
+    namespaces: Record<string, { accounts: string[] }>;
+  } | null>(null);
+  const [connectedChain] = useState<string | null>('bch:bchtest');
   const [usersAddress, setUsersAddress] = useState<string | null>(null);
   const [isEmpty, setIsEmpty] = useState(false);
   const [campaigns, setCampaigns] = useState<ElectrumUtxo[]>([]);
-  const [expiredCampaigns, setExpiredCampaigns] = useState<ElectrumUtxo[]>([]);
+  const [_expiredCampaigns, setExpiredCampaigns] = useState<ElectrumUtxo[]>(
+    []
+  );
   const [campaignsMap, setCampaignsMap] = useState<Map<number, CampaignUtxo | null>>(new Map());
-  const [expiredCampaignsMap, setExpiredCampaignsMap] = useState<Map<number, CampaignUtxo | null>>(new Map());
-  const [archivedCampaignsMap, setArchivedCampaignsMap] = useState<Map<number, ArchivedCampaign | null>>(new Map());
+  const [expiredCampaignsMap, setExpiredCampaignsMap] = useState<
+    Map<number, CampaignUtxo | null>
+  >(new Map());
+  const [archivedCampaignsMap, setArchivedCampaignsMap] = useState<
+    Map<number, ArchivedCampaign | null>
+  >(new Map());
   const [campaignType, setCampaignType] = useState<string>('active');
+  const walletConnectProjectId = getWalletConnectProjectId();
+  const walletConnectMetadataUrl = getWalletConnectMetadataUrl();
   //connectedChain: network === 'mainnet' ? 'bch:bitcoincash' : 'bch:bchtest' 
 
   const hexToDecimal = (hex: string): number => {
@@ -83,6 +97,9 @@ const FundMeApp = () => {
 
   // Create an instance of ElectrumServer
   const electrumServer = ElectrumServer();
+  void _expiredCampaigns;
+  void expiredCampaignsMap;
+  void archivedCampaignsMap;
 
 
   useEffect(() => {
@@ -111,7 +128,7 @@ const FundMeApp = () => {
 ////////// Prepare Wallet Connect Modal
 //////////////////////////////////////////////////
   const walletConnectModal = new WalletConnectModal({
-    projectId: '',
+    projectId: walletConnectProjectId,
     themeMode: 'dark',
     themeVariables: {
       '--wcm-background-color': '#20c997',
@@ -134,14 +151,14 @@ const FundMeApp = () => {
   //connection settings
   const signClient = async () => {
     return await SignClient.init({
-      projectId: '',
+      projectId: walletConnectProjectId,
       // optional parameters
       relayUrl: 'wss://relay.walletconnect.com',
       metadata: {
         name: 'OPTN Wallet',
         description: 'OPTN Wallet',
-        url: 'https://',
-        icons: ['https://.png']
+        url: walletConnectMetadataUrl,
+        icons: ['https://optnlabs.com/logo.png']
       }
     });
   } 
@@ -163,7 +180,7 @@ const FundMeApp = () => {
         });
         console.log('session_event added...');
 
-        client.on('session_update', ({ topic, params }) => {
+        client.on('session_update', ({ params }) => {
           console.log('session_update');
           console.log(params);
         });
@@ -230,7 +247,7 @@ const manualSetupSignClient = async () => {
       });
       console.log('session_event added...');
 
-      client.on('session_update', ({ topic, params }) => {
+      client.on('session_update', ({ params }) => {
         console.log('session_update');
         console.log(params);
       });
@@ -328,13 +345,13 @@ const handleDisconnectWC = () => {
     }
 
     let lastKeyIndex: number;
-    let lastSession: any;
+    let lastSession: { topic: string } | undefined;
 
     if (walletConnectInstance) {
       console.log('walletConnectInstance exists')
       lastKeyIndex = walletConnectInstance.session.getAll().length - 1;
       lastSession = walletConnectInstance.session.getAll()[lastKeyIndex];
-    } else if (walletConnectInstance) {
+    } else {
       console.log('instance exists')
       lastKeyIndex = walletConnectInstance.session.getAll().length - 1;
       lastSession = walletConnectInstance.session.getAll()[lastKeyIndex];
@@ -369,6 +386,8 @@ const initBlockchain = async () => {
     console.error('initBlockchain(): Error in blockchain initialization:', error);
   }
 }
+void handleDisconnectWC;
+void initBlockchain;
 //////////////////////////////////////////////////
 ////////// UseEffect: Fetch campaigns on page load
 //////////////////////////////////////////////////
@@ -382,11 +401,14 @@ useEffect(() => {
       setTimeout(async () => {
         //get full list of campaigns hosted on FundMe server
         const fetchedCampaigns = await axios.get('https://fundme.cash/get-campaignlist');
-        let campaignList = fetchedCampaigns.data;
+        const campaignList: string[] = fetchedCampaigns.data;
 
         //const cashStarterUTXOs: Utxo[] = await electrumServer.getUtxos(AddressCashStarter);
         //const cashStarterUTXOs: Utxo[] = await electrumServer.request('blockchain.address.listunspent', AddressCashStarter);
-        const rawUTXOs = await electrumServer.request('blockchain.address.listunspent', AddressCashStarter) as any[];
+        const rawUTXOs = (await electrumServer.request(
+          'blockchain.address.listunspent',
+          AddressCashStarter
+        )) as Array<{ token_data?: unknown; token?: unknown } & Record<string, unknown>>;
         const transformedUTXOs = rawUTXOs.map(utxo => ({
           ...utxo,
           token: utxo.token_data
@@ -461,7 +483,7 @@ useEffect(() => {
               console.log('fetch unknown error: ', err);
             }
           }
-        };
+        }
 
         //Fill expired map with expired campaigns
         for (const utxo of expiredUTXOs) {                       //Iterate over expiredUTXOs to populate the map
@@ -504,7 +526,7 @@ useEffect(() => {
               console.log('fetch unknown error: ', err);
             }
           }
-        };
+        }
 
         //Fill archived map with archived campaigns
         for (const campaign of campaignList) {                       //Iterate over campaignList to populate the map
@@ -537,14 +559,14 @@ useEffect(() => {
               console.log('fetch unknown error: ', err);
             }
           }
-        };
+        }
 
         setIsLoading(false);
     }, 2000); // Delay of 2 seconds);
   }
     getCampaigns();
 
-  }, []);
+  }, [electrumServer]);
 
   const actions = [
     {
@@ -552,7 +574,7 @@ useEffect(() => {
       name: 'Create Campaign',
       description: 'Create a new campaign',
       parameters: [/* ... */],
-      handler: async (params) => {
+      handler: async () => {
         // Implementation
       }
     },
@@ -564,7 +586,7 @@ useEffect(() => {
     setIsActionModalOpen(true);
   };
 
-  const handleActionSubmit = async (params: any) => {
+  const handleActionSubmit = async (params: unknown) => {
     if (!selectedAction) return;
 
     setIsLoading(true);
@@ -576,10 +598,11 @@ useEffect(() => {
       await Toast.show({
         text: 'Action completed successfully!',
       });
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
       await Toast.show({
-        text: 'Action failed: ' + err.message,
+        text: 'Action failed: ' + message,
       });
     } finally {
       setIsLoading(false);
@@ -675,10 +698,10 @@ useEffect(() => {
       <div className="flex justify-between items-center mb-6">
       <h1 className="text-2xl font-bold">FundMe</h1>
         <button
-          onClick={() => navigate('/apps')}
+          onClick={() => navigate(backTarget)}
           className="bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded"
         >
-          Back to Apps
+          Back
         </button>
       </div>
 
@@ -726,7 +749,7 @@ useEffect(() => {
           {[...campaignsMap.values()].map((campaign) => (
             campaign && (
               <div 
-                key={campaign.txid} 
+                key={`${campaign.tx_hash}:${campaign.tx_pos}`} 
                 className="bg-gray-900 rounded-xl overflow-hidden border border-gray-700 shadow-[0_0_15px_rgba(0,0,0,0.2)] hover:shadow-[0_0_20px_rgba(10,193,142,0.3)] hover:border-[#0AC18E] transition-all duration-300">
                 <div 
                   className="w-full max-w-[500px] aspect-[500/120] bg-cover bg-center mx-auto" 
