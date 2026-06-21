@@ -1,19 +1,15 @@
 // src/hooks/useHandleTransaction.ts
 
 import { useDispatch } from 'react-redux';
-import TransactionService, {
-  type BroadcastResult,
-  type BroadcastState,
-} from '../services/TransactionService';
+import TransactionService from '../services/TransactionService';
 import { Toast } from '@capacitor/toast';
 import { TransactionOutput, UTXO } from '../types/types';
 import {
   clearTransaction,
   setTxOutputs,
-} from '../state/slices/transactionBuilderSlice';
-import { resetContract } from '../state/slices/contractSlice';
-import { logError, toErrorMessage } from '../utils/errorHandling';
-// import { optimisticRemoveSpentByOutpoints, requestUTXORefreshForMany } from '../workers/UTXOWorkerService';
+} from '../redux/transactionBuilderSlice';
+import { resetTransactions } from '../redux/transactionSlice';
+import { resetContract } from '../redux/contractSlice';
 
 interface BuildTransactionResult {
   bytecodeSize: number;
@@ -32,18 +28,11 @@ const useHandleTransaction = (
   setErrorMessage: React.Dispatch<React.SetStateAction<string | null>>,
   setShowRawTxPopup: React.Dispatch<React.SetStateAction<boolean>>,
   setShowTxIdPopup: React.Dispatch<React.SetStateAction<boolean>>, // Added parameter
-  setBroadcastState: React.Dispatch<React.SetStateAction<BroadcastState>>,
-  setLoading: React.Dispatch<React.SetStateAction<boolean>>,
-  onBroadcastSuccess?: () => void
+  setLoading: React.Dispatch<React.SetStateAction<boolean>>
 ) => {
   const dispatch = useDispatch();
 
   const handleBuildTransaction = async () => {
-    if (selectedUtxos.length === 0) {
-      setErrorMessage('No input selected');
-      setRawTX('');
-      return;
-    }
     // Calculate the sum of selected UTXOs as bigint
     const inputSum = selectedUtxos.reduce((sum, utxo) => {
       // Prefer 'amount' if it exists; otherwise, use 'value'
@@ -100,8 +89,7 @@ const useHandleTransaction = (
           txOutputs,
           contractFunctionInputs,
           changeAddress,
-          selectedUtxos,
-          true
+          selectedUtxos
         );
 
       // await Toast.show({
@@ -109,7 +97,7 @@ const useHandleTransaction = (
       // });
 
       if (!transaction.finalTransaction) {
-        setErrorMessage(`Failed to build transaction: ${transaction.errorMsg}`);
+        setErrorMessage('Failed to build transaction.');
         setLoading(false);
         return;
       }
@@ -132,13 +120,10 @@ const useHandleTransaction = (
       setErrorMessage(transaction.errorMsg);
       setShowRawTxPopup(true);
       setLoading(false);
-    } catch (err) {
-      logError('useHandleTransaction.handleBuildTransaction', err, {
-        outputCount: txOutputs.length,
-        utxoCount: selectedUtxos.length,
-      });
+    } catch (err: any) {
+      console.error('Error building transaction:', err);
       setRawTX('');
-      setErrorMessage('Error building transaction: ' + toErrorMessage(err));
+      setErrorMessage('Error building transaction: ' + err.message);
       setShowRawTxPopup(true);
       setLoading(false);
     }
@@ -147,52 +132,36 @@ const useHandleTransaction = (
   const handleSendTransaction = async (
     rawTX: string,
     setTransactionId: React.Dispatch<React.SetStateAction<string>>
-  ): Promise<BroadcastResult> => {
+  ) => {
     try {
       setLoading(true);
-      const transactionID = await TransactionService.sendTransaction(
-        rawTX,
-        selectedUtxos,
-        {
-          source: 'transaction-builder',
-          sourceLabel: 'Transaction Builder',
-          amountSummary: `${txOutputs.length} output${txOutputs.length === 1 ? '' : 's'}`,
-        }
-      );
+      const transactionID = await TransactionService.sendTransaction(rawTX);
 
-      // If we didn't get a txid, treat as an error even if no errorMessage was returned.
-      if (!transactionID?.txid) {
-        const msg =
-          transactionID?.errorMessage ?? 'Broadcast failed (no txid returned).';
-        setErrorMessage(msg);
-        await Toast.show({ text: `Error: ${msg}` });
-        setShowTxIdPopup(false);
-        setLoading(false);
-        return { txid: null, errorMessage: msg };
+      if (transactionID.txid) {
+        setTransactionId(transactionID.txid);
+        setShowTxIdPopup(true); // Trigger the popup
       }
 
-      // Success path
-      setTransactionId(transactionID.txid);
-      setBroadcastState(transactionID.broadcastState ?? 'broadcasted');
-      setShowTxIdPopup(true);
-
-      // Clear state only on success
-      setRawTX('');
-      dispatch(clearTransaction());
-      dispatch(resetContract());
-      onBroadcastSuccess?.();
+      if (transactionID.errorMessage) {
+        setErrorMessage(transactionID.errorMessage);
+        await Toast.show({
+          text: `Error: ${transactionID.errorMessage}`,
+        });
+      } else {
+        // Reset both transaction and contract states if successful
+        setRawTX('');
+        dispatch(resetTransactions());
+        dispatch(resetContract());
+      }
 
       setLoading(false);
       return transactionID;
-    } catch (error) {
-      logError('useHandleTransaction.handleSendTransaction', error, {
-        selectedUtxoCount: selectedUtxos.length,
-      });
-      const message = toErrorMessage(error);
-      setErrorMessage('Error sending transaction: ' + message);
-      setShowTxIdPopup(false);
+    } catch (error: any) {
+      console.error('Error sending transaction:', error);
+      setErrorMessage('Error sending transaction: ' + error.message);
+      setShowTxIdPopup(false); // Ensure popup is not shown on error
       setLoading(false);
-      return { txid: null, errorMessage: message };
+      return { txid: null, errorMessage: error.message };
     }
   };
 

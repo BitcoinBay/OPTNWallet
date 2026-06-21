@@ -1,6 +1,6 @@
 require_relative '../../node_modules/@capacitor/ios/scripts/pods_helpers'
 
-platform :ios, '14.0'
+platform :ios, '13.0'
 use_frameworks!
 
 # workaround to avoid Xcode caching of Pods that requires
@@ -11,14 +11,13 @@ install! 'cocoapods', :disable_input_output_paths => true
 def capacitor_pods
   pod 'Capacitor', :path => '../../node_modules/@capacitor/ios'
   pod 'CapacitorCordova', :path => '../../node_modules/@capacitor/ios'
+  pod 'CapacitorCommunityHttp', :path => '../../node_modules/@capacitor-community/http'
   pod 'CapacitorBarcodeScanner', :path => '../../node_modules/@capacitor/barcode-scanner'
   pod 'CapacitorCamera', :path => '../../node_modules/@capacitor/camera'
   pod 'CapacitorClipboard', :path => '../../node_modules/@capacitor/clipboard'
   pod 'CapacitorDialog', :path => '../../node_modules/@capacitor/dialog'
   pod 'CapacitorFilesystem', :path => '../../node_modules/@capacitor/filesystem'
-  pod 'CapacitorLocalNotifications', :path => '../../node_modules/@capacitor/local-notifications'
   pod 'CapacitorSplashScreen', :path => '../../node_modules/@capacitor/splash-screen'
-  pod 'CapacitorStatusBar', :path => '../../node_modules/@capacitor/status-bar'
   pod 'CapacitorToast', :path => '../../node_modules/@capacitor/toast'
 end
 

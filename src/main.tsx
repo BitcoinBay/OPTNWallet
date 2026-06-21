@@ -1,35 +1,40 @@
 // src/main.tsx
-import './polyfills/node-globals';
-// IMPORTANT: don't import 'dotenv/config' in the browser bundle.
+import 'dotenv/config'
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { Capacitor } from '@capacitor/core';
-import App from './app/AppShell';
+import App from './App.tsx';
 import './index.css';
-import 'react-tooltip/dist/react-tooltip.css';
-import { installProductionConsoleGuards } from './utils/productionConsole';
-import { installBarcodeScannerUnhandledRejectionGuard } from './utils/barcodeScanner';
-import { HashRouter } from 'react-router-dom';
+import { BrowserRouter } from 'react-router-dom';
 import { Provider } from 'react-redux';
-import { store } from './state/store';
-import { ThemeProvider } from './app/theme/ThemeContext';
+import { PersistGate } from 'redux-persist/integration/react';
+import { store, persistor } from './redux/store';
+// import { updatePrices } from './redux/priceFeedSlice';
 
-installProductionConsoleGuards();
-installBarcodeScannerUnhandledRejectionGuard();
+// // Initialize the worker directly
+// const priceFeedWorker = new Worker(
+//   new URL('./workers/priceFeedWorker.ts', import.meta.url),
+//   { type: 'module' } // Ensure worker uses module type
+// );
 
-if (Capacitor.isNativePlatform()) {
-  document.documentElement.classList.add('native-contained');
-}
+// // Listen to messages from the worker
+// priceFeedWorker.onmessage = (event) => {
+//   const { type, data } = event.data;
+//   if (type === 'PRICE_UPDATE') {
+//     store.dispatch(updatePrices(data));
+//   } else if (type === 'PRICE_ERROR') {
+//     console.error('Price feed worker error:', data);
+//   }
+// };
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <Provider store={store}>
-      <ThemeProvider>
-        <HashRouter>
+      <PersistGate loading={null} persistor={persistor}>
+        <BrowserRouter>
           <App />
-        </HashRouter>
-      </ThemeProvider>
+        </BrowserRouter>
+      </PersistGate>
     </Provider>
   </React.StrictMode>
 );

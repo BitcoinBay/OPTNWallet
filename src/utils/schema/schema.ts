@@ -1,27 +1,36 @@
-type DatabaseRunner = {
-  run: (query: string) => void;
-};
+export const createTables = (db: any) => {
+  // // Drop and create existing tables
+  // db.run(`
+  //   DROP TABLE IF EXISTS UTXOs;
+  // `);
+  // db.run(`
+  //     DROP TABLE IF EXISTS wallets;
+  // `);
+  // db.run(`
+  //     DROP TABLE IF EXISTS keys;
+  // `);
+  // db.run(`
+  //     DROP TABLE IF EXISTS addresses;
+  // `);
+  // db.run(`
+  //     DROP TABLE IF EXISTS transactions;
+  // `);
+  // db.run(`
+  //   DROP TABLE IF EXISTS cashscript_artifacts;
+  // `);
+  // db.run(`
+  //   DROP TABLE IF EXISTS cashscript_addresses;
+  // `);
+  // db.run(`
+  //   DROP TABLE IF EXISTS instantiated_contracts;
+  // `);
+  // db.run(`
+  //   DROP TABLE IF EXISTS bcmr;
+  // `);
+  // db.run(`
+  //   DROP TABLE IF EXISTS bcmr_tokens;
+  // `);
 
-export const createTransactionDetailsTable = (db: DatabaseRunner) => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS transaction_details (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      wallet_id INT,
-      tx_hash TEXT NOT NULL,
-      confirmations INT NOT NULL,
-      height INT,
-      fee_sats INT,
-      timestamp TEXT NOT NULL,
-      inputs_json TEXT NOT NULL,
-      outputs_json TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      FOREIGN KEY(wallet_id) REFERENCES wallets(id),
-      UNIQUE(wallet_id, tx_hash)
-    );
-  `);
-};
-
-export const createTables = (db: DatabaseRunner) => {
   db.run(`
     CREATE TABLE IF NOT EXISTS wallets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -29,7 +38,6 @@ export const createTables = (db: DatabaseRunner) => {
       mnemonic TEXT,
       passphrase TEXT,
       networkType TEXT,
-      walletType TEXT DEFAULT 'standard',
       balance INT
     );
   `);
@@ -70,7 +78,6 @@ export const createTables = (db: DatabaseRunner) => {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       wallet_id INT,
       address VARCHAR(255) NOT NULL,
-      token_address VARCHAR(255),
       height INT NOT NULL,
       tx_hash TEXT NOT NULL,
       tx_pos INT NOT NULL,
@@ -97,8 +104,6 @@ export const createTables = (db: DatabaseRunner) => {
       UNIQUE(wallet_id, tx_hash)
     );
   `);
-
-  createTransactionDetailsTable(db);
 
   db.run(`
     CREATE TABLE IF NOT EXISTS cashscript_artifacts (
@@ -148,27 +153,7 @@ export const createTables = (db: DatabaseRunner) => {
     );
   `);
 
-  db.run(`
-    CREATE TABLE IF NOT EXISTS quantumroot_vaults (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      wallet_id INT NOT NULL,
-      account_index INT NOT NULL,
-      address_index INT NOT NULL,
-      receive_address VARCHAR(255) NOT NULL UNIQUE,
-      quantum_lock_address VARCHAR(255) NOT NULL UNIQUE,
-      receive_locking_bytecode TEXT NOT NULL,
-      quantum_lock_locking_bytecode TEXT NOT NULL,
-      quantum_public_key TEXT NOT NULL,
-      quantum_key_identifier TEXT NOT NULL,
-      vault_token_category TEXT NOT NULL,
-      online_quantum_signer INT NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      FOREIGN KEY(wallet_id) REFERENCES wallets(id),
-      UNIQUE(wallet_id, account_index, address_index)
-    );
-  `);
-
+  // BCMR: “on‑chain metadata registry” cache
   db.run(`
       CREATE TABLE IF NOT EXISTS bcmr (
         authbase        TEXT PRIMARY KEY,        -- 32‑byte hex TXID
@@ -179,6 +164,7 @@ export const createTables = (db: DatabaseRunner) => {
       );
     `);
 
+  // map each token “category” to its authbase
   db.run(`
       CREATE TABLE IF NOT EXISTS bcmr_tokens (
         category        TEXT PRIMARY KEY,        -- cashtoken category hex
@@ -186,22 +172,4 @@ export const createTables = (db: DatabaseRunner) => {
         FOREIGN KEY(authbase) REFERENCES bcmr(authbase)
       );
     `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS bcmr_metadata (
-      category TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      description TEXT NOT NULL,
-      decimals INTEGER NOT NULL,
-      symbol TEXT NOT NULL,
-      is_nft BOOLEAN NOT NULL,
-      nfts TEXT,
-      uris TEXT,
-      extensions TEXT,
-      lastFetch TEXT,
-      registryUri TEXT,
-      registryHash TEXT,
-      FOREIGN KEY(category) REFERENCES bcmr_tokens(category)
-    );
-  `);
 };

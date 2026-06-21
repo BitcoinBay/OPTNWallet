@@ -4,6 +4,7 @@ import {
   binToBase64,
   CashAddressType,
   encodeCashAddress,
+  hexToBin,
   instantiateSecp256k1,
   instantiateSha256,
   RecoveryId,
@@ -29,42 +30,13 @@ import { derivePrefix } from './derivePublicKeyHash';
  */
 // see    https://github.com/Electron-Cash/Electron-Cash/blob/49f9f672364f50053a026e4a5cb30e92db2d195d/electroncash/bitcoin.py#L524
 function message_magic(str: string) {
-  const messageBytes = utf8ToBin(str);
-  const payload = `\x18Bitcoin Signed Message:\n`;
+  const length = utf8ToBin(str).length.toString(16);
+  let payload = `\x18Bitcoin Signed Message:\n`;
   return new Uint8Array([
     ...utf8ToBin(payload),
-    ...encodeMessageLength(messageBytes.length),
-    ...messageBytes,
+    ...hexToBin(length),
+    ...utf8ToBin(str),
   ]);
-}
-
-/**
- * encodeMessageLength - Encode the message length as a Bitcoin CompactSize
- * varint, as required by the standard "Bitcoin Signed Message" framing.
- *
- * The previous `length.toString(16)` form was malformed for messages of 253
- * bytes or more: it dropped the `0xfd` size marker and, for lengths whose hex
- * is an odd number of characters, lost the final nibble. A 385-byte message
- * was prefixed `18 01` instead of `fd 81 01`, so the signed preimage differed
- * from every standards-compliant verifier and the signature failed to verify.
- *
- * @param {number} length   The message length in bytes.
- * @returns the CompactSize-encoded length as a binary array.
- */
-function encodeMessageLength(length: number): Uint8Array {
-  if (length < 0xfd) {
-    return Uint8Array.of(length);
-  }
-  if (length <= 0xffff) {
-    return Uint8Array.of(0xfd, length & 0xff, (length >> 8) & 0xff);
-  }
-  return Uint8Array.of(
-    0xfe,
-    length & 0xff,
-    (length >> 8) & 0xff,
-    (length >> 16) & 0xff,
-    (length >> 24) & 0xff
-  );
 }
 
 /**
@@ -94,23 +66,23 @@ export class SignedMessage implements SignedMessageI {
   ): Promise<SignedMessageResponseI> {
     const secp256k1 = await instantiateSecp256k1();
 
-    const messageHash = await hash_message(message);
-    const rs = secp256k1.signMessageHashRecoverableCompact(
+    let messageHash = await hash_message(message);
+    let rs = secp256k1.signMessageHashRecoverableCompact(
       privateKey,
       messageHash
     );
     if (typeof rs === 'string') {
       throw new Error(rs);
     }
-    const sigDer = secp256k1.signMessageHashDER(
+    let sigDer = secp256k1.signMessageHashDER(
       privateKey,
       messageHash
     ) as Uint8Array;
-    const sigSchnorr = secp256k1.signMessageHashSchnorr(
+    let sigSchnorr = secp256k1.signMessageHashSchnorr(
       privateKey,
       messageHash
     ) as Uint8Array;
-    const electronEncoding = new Uint8Array([
+    let electronEncoding = new Uint8Array([
       ...[31 + rs.recoveryId],
       ...rs.signature,
     ]);
@@ -150,8 +122,8 @@ export class SignedMessage implements SignedMessageI {
   ): Promise<VerifyMessageResponseI> {
     // Check that the signature is valid for the given message.
     const secp256k1 = await instantiateSecp256k1();
-    const messageHash = await hash_message(message);
-    const sig = base64ToBin(signature);
+    let messageHash = await hash_message(message);
+    let sig = base64ToBin(signature);
 
     let signatureValid = false;
     let keyMatch = false;
@@ -159,9 +131,9 @@ export class SignedMessage implements SignedMessageI {
     let pkh, signatureType;
 
     if (sig.length === 65) {
-      const rawSig = sig.length === 65 ? sig.slice(1) : sig;
-      const recoveryId = sig.slice(0, 1)[0] - 31;
-      const recoveredPk = secp256k1.recoverPublicKeyCompressed(
+      let rawSig = sig.length === 65 ? sig.slice(1) : sig;
+      let recoveryId = sig.slice(0, 1)[0] - 31;
+      let recoveredPk = secp256k1.recoverPublicKeyCompressed(
         rawSig,
         recoveryId as RecoveryId,
         messageHash
@@ -179,8 +151,8 @@ export class SignedMessage implements SignedMessageI {
       );
       if (cashaddr) {
         // Validate that the signature actually matches the provided cashaddr
-        const prefix = derivePrefix(cashaddr);
-        const resultingCashaddr = encodeCashAddress({
+        let prefix = derivePrefix(cashaddr);
+        let resultingCashaddr = encodeCashAddress({
           prefix,
           type: CashAddressType.p2pkh,
           payload: pkh,

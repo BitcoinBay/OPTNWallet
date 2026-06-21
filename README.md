@@ -1,75 +1,151 @@
-# OPTN Wallet
+# OPTN Wallet Developer Onboarding
 
-OPTN Wallet is a Bitcoin Cash wallet focused on secure transaction flows, CashTokens support, and extensibility for external apps.
+Welcome to the OPTN Wallet project! This guide is designed to help you get started with the development environment, understand the project layout, and build the application for web and mobile platforms. For more information about the project, visit our [website](https://optn-website.vercel.app/).
 
-This `README` is the high-level entrypoint. Technical implementation and integration details live in [`docs/`](./docs/README.md).
+## Project Structure
 
-## Documentation Map
+The project is organized to clearly separate frontend components, API interactions, and backend services. Here’s a breakdown of the key directories and files:
 
-- [Developer Docs Index](./docs/README.md)
-- [Build and Release Scripts](./docs/build-and-release.md)
-- [Wallet Architecture](./docs/wallet-architecture.md)
-- [Integration Guide](./docs/integration-guide.md)
-- [Addon Development Guide](./docs/addon-development-guide.md)
-- [Addon SDK Reference](./docs/addons-sdk.md)
+- **Root Configuration & Build Files:**
 
-## For Third-Party Developers
+  - `.editorconfig`, `.eslintrc.cjs`, `.eslintrc.json`, `.prettierrc` – Code style and formatting configurations.
+  - `package.json`, `package-lock.json` – Project metadata and dependency management.
+  - `tsconfig.json`, `tsconfig.node.json` – TypeScript configuration files.
+  - `vite.config.ts` – Vite configuration for building the app.
+  - `tailwind.config.js` – Tailwind CSS configuration.
+  - `capacitor.config.ts` – Configuration for mobile builds using Capacitor.
 
-There are two primary ways to integrate with OPTN Wallet:
+- **Source Code (`src` folder):**
 
-- Wallet-to-dApp via WalletConnect.
-- In-wallet addon apps using the Addon manifest + Addon SDK model.
+  - **Entry Points & Global Assets:**
 
-Start with [Integration Guide](./docs/integration-guide.md), then go deeper into addon docs if you are building embedded wallet apps.
+    - `App.tsx` – Main React entry point.
+    - `index.html`, `index.css`, `main.tsx` – Base HTML and styling files.
 
-## Quickstart (Local Development)
+  - **API Modules (`src/apis`):**Modules here handle interactions with external APIs and blockchain-related operations:
 
-1. Clone and install:
+    - **AddressManager** – Manages wallet addresses.
+    - **ChaingraphManager** – Interacts with blockchain data graphs.
+    - **ContractManager** – Manages smart contract interactions and holds contract artifacts.
+    - **DatabaseManager** – Interfaces with the internal database.
+    - **ElectrumServer** – Manages communication with the Electrum server.
+    - **TransactionManager** – Constructs and processes transactions.
+    - **UTXOManager** – Handles UTXO (Unspent Transaction Output) management.
+    - **WalletManager** – Manages wallet creation, key generation, and related functions.
 
-```bash
-git clone https://github.com/OPTNLabs/OPTNWallet.git
-cd OPTNWallet
-npm install
-```
+  - **Frontend Components (`src/components`):**Contains all reusable React components for the user interface:
 
-2. Configure environment:
+    - General UI elements (e.g., `AboutView.tsx`, `BitcoinCashCard.tsx`, `WalletCreate.tsx`, etc.).
+    - Specialized components organized in subdirectories like `modules` (e.g., `NetworkSwitch.tsx`) and `transaction` (e.g., `TransactionActions.tsx`).
 
-```bash
-cp .env.sample .env
-```
+  - **Pages (`src/pages`):**Represents the different views and routes of the application:
 
-Set at least:
+    - Pages like `Home.tsx`, `CreateWallet.tsx`, `ImportWallet.tsx`, `Settings.tsx`, and more.
 
-- `VITE_WC_PROJECT_ID` for WalletConnect
-- Any API keys you need for your local flows
+  - **State Management (`src/redux`):**Houses Redux slices, selectors, and store configuration:
 
-3. Run:
+    - Files such as `contractSlice.ts`, `networkSlice.ts`, `priceFeedSlice.ts`, among others, along with selectors and the main store.
 
-```bash
-npm run dev
-```
+  - **Backend Services (`src/services`):**Provides additional business logic and supports API calls:
 
-## Quality Checks
+    - Services like `ElectrumService.ts`, `KeyService.ts`, `TransactionService.ts`, and `UTXOService.ts`.
 
-- `npm run typecheck`
-- `npm run test`
-- `npm run addons:validate`
-- `npm run build`
+  - **Custom Hooks (`src/hooks`):**Contains React hooks for handling logic like data fetching and transaction processing:
 
-## Build Scripts
+    - Files such as `useContractFunction.ts`, `useFetchWalletData.ts`, `useHandleTransaction.ts`.
 
-See [Build and Release Scripts](./docs/build-and-release.md) for Android APK/AAB commands and iOS preparation commands.
+  - **Utilities & Types:**
 
-## High-Level Repository Layout
+    - **Utilities (`src/utils`):**
+      Includes helper functions, constants, and schema validations.
+    - **Types (`src/types`):**
+      TypeScript definitions for consistent type usage across the project.
 
-- `src/pages/` UI routes and host screens
-- `src/services/` runtime services (wallet, tx, addons, policy)
-- `src/types/` shared domain models (including addon manifest/capabilities)
-- `src/addons/builtin/` curated built-in addon manifests
-- `schemas/` JSON schemas (including addon manifest schema)
-- `docs/` technical documentation
+  - **Web Workers (`src/workers`):**Offloads heavy computations or background tasks to separate threads:
 
-## Project Links
+    - Worker services like `TransactionWorkerService.ts`, `UTXOWorkerService.ts`, and `priceFeedWorker.ts`.
 
-- Website: https://www.optnwallet.com/
-- Source: https://github.com/OPTNLabs/OPTNWallet
+- **Additional Folders:**
+
+  - **Patches (`patches` folder):**
+    Contains patches applied to third-party dependencies when needed.
+
+## Getting Started
+
+### Repository
+
+The source code for the OPTN Wallet is hosted on GitHub. You can find the repository at the following link:
+[GitHub Repository](https://github.com/BitcoinBay/OPTNWallet)
+
+### Local Development Build
+
+1. **Clone the Repository**
+
+   ```bash
+   git clone https://github.com/BitcoinBay/OPTNWallet.git
+   cd OPTNWallet
+   ```
+
+2. **Install Dependencies**
+
+   ```bash
+   npm install
+   ```
+
+3. **Run Development Server**
+
+   ```bash
+   npm run dev
+   ```
+
+### Building the App for Android / iOS
+
+1. **Initialize Capacitor**
+
+   ```bash
+   npm run capacitor:init
+   ```
+
+2. **Add Android Platform**
+
+   ```bash
+   npm run capacitor:add:android
+   ```
+
+3. **Copy Web Assets**
+
+   ```bash
+   npm run capacitor:copy
+   ```
+
+4. **Sync Capacitor Plugins**
+
+   ```bash
+   npm run capacitor:sync
+   ```
+
+5. **Open Android Studio**
+
+   ```bash
+   npm run capacitor:open:android
+   ```
+
+6. **Build the Project**
+
+   - For Android: Use Android Studio to build and run the project on an emulator or a physical device.
+   - For iOS: Open the `ios` folder in Xcode and build the project.
+
+### Available Scripts
+
+- **Start Development Server:** `npm run dev`
+- **Build for Production:** `npm run build`
+- **Lint the Code:** `npm run lint`
+- **Preview the Production Build:** `npm run preview`
+- **Format the Code:** `npm run format`
+- **Serve the Production Build:** `npm run serve`
+
+## Contribution & Contact
+
+We welcome contributions from the community! Join our [Telegram Group](https://t.me/+KLBMsVW0xHY1YWI5) to connect with the developers and other contributors.
+
+Thank you for your interest in the OPTN Wallet project!

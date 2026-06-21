@@ -1,55 +1,65 @@
 // src/components/UTXOCard.tsx
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { FaBitcoin } from 'react-icons/fa';
 import { shortenTxHash } from '../utils/shortenHash';
+import BcmrService from '../services/BcmrService';
 import { UTXO } from '../types/types';
-import { SATSINBITCOIN } from '../utils/constants';
-import useSharedTokenMetadata from '../hooks/useSharedTokenMetadata';
-import TokenIdentityBadge from './ui/TokenIdentityBadge';
-import {
-  formatAtomicTokenAmount,
-  resolveTokenPresentation,
-} from '../utils/tokenPresentation';
+import { IdentitySnapshot } from '@bitauth/libauth';
 
 interface UTXOCardProps {
   utxos: UTXO[];
   loading: boolean;
 }
 
-const SATS_PER_BCH_BIGINT = BigInt(SATSINBITCOIN);
-
-function formatBchFromSats(
-  sats: number | string | bigint | undefined | null
-): string {
-  if (sats === null || sats === undefined) return '0';
-
-  // bigint-safe formatting (no precision loss)
-  if (typeof sats === 'bigint') {
-    const whole = sats / SATS_PER_BCH_BIGINT;
-    const frac = sats % SATS_PER_BCH_BIGINT;
-
-    let fracStr = frac.toString().padStart(8, '0');
-    fracStr = fracStr.replace(/0+$/, ''); // trim trailing zeros
-
-    return fracStr.length ? `${whole.toString()}.${fracStr}` : whole.toString();
-  }
-
-  // number/string formatting
-  const n = typeof sats === 'string' ? Number(sats) : sats;
-  if (!Number.isFinite(n)) return '0';
-
-  return (n / SATSINBITCOIN).toFixed(8).replace(/\.?0+$/, '');
+interface TokenMeta {
+  name: string;
+  iconUri: string | null;
 }
 
 const UTXOCard: React.FC<UTXOCardProps> = ({ utxos, loading }) => {
-  const tokenMetadata = useSharedTokenMetadata(
-    utxos
-      .map((u) => u.token?.category)
-      .filter((category): category is string => Boolean(category))
-  );
+  const [metaByCategory, setMetaByCategory] = useState<
+    Record<string, TokenMeta>
+  >({});
+
+  // Preload metadata for each token category we see
+  useEffect(() => {
+    const categories = Array.from(
+      new Set(
+        utxos
+          .map((u) => u.token)
+          .filter(Boolean)
+          .map((t) => (t as any).category)
+      )
+    ) as string[];
+    if (!categories.length) return;
+
+    const svc = new BcmrService();
+    (async () => {
+      const next: Record<string, TokenMeta> = {};
+      for (const category of categories) {
+        if (metaByCategory[category]) continue;
+        try {
+          const authbase = await svc.getCategoryAuthbase(category);
+          const idReg = await svc.resolveIdentityRegistry(authbase);
+          const snap: IdentitySnapshot = svc.extractIdentity(
+            authbase,
+            idReg.registry
+          );
+          const iconUri = await svc.resolveIcon(authbase);
+          next[category] = { name: snap.name, iconUri };
+        } catch (e) {
+          console.error('Failed to load token metadata for', category, e);
+        }
+      }
+      if (Object.keys(next).length) {
+        setMetaByCategory((m) => ({ ...m, ...next }));
+      }
+    })();
+  }, [utxos, metaByCategory]);
 
   if (loading) {
     return (
-      <div className="flex items-center wallet-muted">
+      <div className="flex items-center text-gray-500">
         <svg className="animate-spin h-5 w-5 mr-2" viewBox="0 0 24 24">
           <circle
             className="opacity-25"
@@ -72,95 +82,76 @@ const UTXOCard: React.FC<UTXOCardProps> = ({ utxos, loading }) => {
 
   return (
     <div>
+      {/* Optional heading */}
+      <h4 className="font-semibold mb-2">UTXOs:</h4>
+
       {utxos.map((utxo, i) => {
         const isToken = Boolean(utxo.token);
-        const tokenData = isToken ? utxo.token : null;
-        const metadata = tokenData?.BcmrTokenMetadata || null;
-        const category = tokenData?.category || null;
-        const sharedMeta = category ? tokenMetadata[category] : null;
-        const presentation = resolveTokenPresentation(category ?? '', sharedMeta, {
-          name: metadata?.name ?? null,
-          symbol: metadata?.token.symbol ?? null,
-          decimals: metadata?.token.decimals ?? null,
-          iconUri: metadata?.uris?.icon ?? null,
-        });
-
-        // ✅ Contract UTXOs may not have `value`, but do have `amount`
-        const sats = (utxo.value ?? utxo.amount) as
-          | number
-          | string
-          | bigint
-          | undefined;
+        const tokenData = isToken
+          ? typeof utxo.token === 'string'
+            ? JSON.parse(utxo.token)
+            : utxo.token
+          : null;
+        const category = isToken ? tokenData!.category : null;
+        const meta = category ? metaByCategory[category] : null;
 
         return (
           <div
             key={i}
-            className="wallet-card p-3 mb-3 grid grid-cols-[1fr_auto] gap-4"
+            className="p-3 mb-3 border rounded-lg grid grid-cols-[1fr_auto] gap-4"
           >
+            {/* Left column: UTXO details */}
             <div className="space-y-1 text-sm">
-              {isToken ? (
-                <>
-                  <p>
-                    <strong>Amount:</strong>{' '}
-                    {formatAtomicTokenAmount(
-                      tokenData!.amount,
-                      presentation.decimals
-                    )}{' '}
-                    {presentation.symbol || 'tokens'}
-                  </p>
-                  <p>
-                    <strong>Name:</strong> {presentation.primaryLabel}
-                  </p>
-                  <p>
-                    {formatBchFromSats(sats)} <strong>BCH</strong>
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p>
-                    {formatBchFromSats(sats)} <strong>BCH</strong>
-                  </p>
-                  <p>
-                    <strong>Tx Hash:</strong> {shortenTxHash(utxo.tx_hash)}
-                  </p>
-                  <p>
-                    <strong>Pos:</strong> {utxo.tx_pos}
-                  </p>
-                  <p>
-                    <strong>Height:</strong> {utxo.height}
-                  </p>
-                </>
+              <p>
+                <strong>Amount:</strong>{' '}
+                {isToken ? tokenData!.amount : utxo.amount ?? utxo.value}{' '}
+                {isToken ? 'tokens' : 'satoshis'}
+              </p>
+              {isToken && (
+                <p>
+                  <strong>Category:</strong> {shortenTxHash(category!)}
+                </p>
               )}
+              <p>
+                <strong>Tx Hash:</strong> {shortenTxHash(utxo.tx_hash)}
+              </p>
+              <p>
+                <strong>Pos:</strong> {utxo.tx_pos}
+              </p>
+              <p>
+                <strong>Height:</strong> {utxo.height}
+              </p>
             </div>
 
+            {/* Right column: Icon + Name or Bitcoin logo */}
             <div className="flex flex-col items-center space-y-2">
-              {isToken ? (
-                <TokenIdentityBadge
-                  presentation={presentation}
-                  className="w-full justify-center"
-                  avatarClassName="h-12 w-12"
-                  primaryClassName="text-center"
-                  secondaryClassName="justify-center"
-                  showStatus={false}
-                  detail={
-                    <span className="text-xs wallet-muted">
-                      {utxo.token?.nft ? 'NFT' : 'FT'}
-                    </span>
-                  }
-                />
+              {isToken && meta ? (
+                <>
+                  {meta.iconUri && (
+                    <img
+                      src={meta.iconUri}
+                      alt={meta.name}
+                      className="w-12 h-12 rounded"
+                    />
+                  )}
+                  <span className="text-base font-medium text-center">
+                    {meta.name}
+                  </span>
+                </>
               ) : (
-                <div className="text-center">
-                  <div className="text-base font-semibold wallet-text-strong">
+                <>
+                  <FaBitcoin className="text-green-500 text-4xl" />
+                  <span className="text-base font-medium text-center">
                     Bitcoin Cash
-                  </div>
-                </div>
+                  </span>
+                </>
               )}
             </div>
           </div>
         );
       })}
 
-      {!utxos.length && <p className="wallet-muted">No UTXOs to display.</p>}
+      {!utxos.length && <p className="text-gray-500">No UTXOs to display.</p>}
     </div>
   );
 };

@@ -1,19 +1,23 @@
-// testPriceServerFetch.mjs
+// testCryptoApiFetch.mjs
 import https from 'https';
 import { URL } from 'url';
 
-const API_BASE = process.env.PRICE_SERVER_BASE || 'https://price.optnlabs.com';
-const BASES = process.env.BASES || 'BTC,BCH,ETH';
-const QUOTE = process.env.QUOTE || 'USD';
+const API_BASE = 'https://rest.cryptoapis.io';
+const API_KEY  = '6d9896a7304104e32b4091e9197f1d1b03faffb3';
+const SYMBOL   = 'BTC';  // change to BTC, BCH or ETH to test each
+const ts       = Math.floor(Date.now() / 1000);
 
-const endpoint = new URL('/v1/prices', API_BASE);
-endpoint.searchParams.set('bases', BASES);
-endpoint.searchParams.set('quote', QUOTE);
+const endpoint = new URL(
+  `/market-data/exchange-rates/by-symbol/${SYMBOL}/USD`,
+  API_BASE
+);
+endpoint.searchParams.set('calculationTimestamp', ts);
 
 const options = {
   method: 'GET',
   headers: {
     'Content-Type': 'application/json',
+    'x-api-key':    API_KEY,
   },
 };
 

@@ -1,10 +1,14 @@
-import { Network } from '../../state/slices/networkSlice';
-import { getElectrumServers as getInfraElectrumServers } from './InfraUrls';
+export const chipnetServers = [
+  // 'bch.bitcoinbay.dev',
+  'chipnet.bch.ninja',
+  '100.67.43.69',
+  'bch.bitcoinbay.dev',
+  'chipnet.imaginary.cash',
+  // '192.168.0.151',
+];
 
-// Backward-compatible exports (resolved once), plus a runtime getter.
-export const chipnetServers = getInfraElectrumServers(Network.CHIPNET);
-export const mainnetServers = getInfraElectrumServers(Network.MAINNET);
-
-export function getElectrumServers(network: Network): string[] {
-  return getInfraElectrumServers(network);
-}
+export const mainnetServers = [
+  'bch.imaginary.cash',
+  'explorer.bch.ninja',
+  // '192.168.0.151',
+];
